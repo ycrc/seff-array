@@ -4,6 +4,9 @@ import random
 import sys
 import subprocess
 
+#Histogram code (with modifications) from 
+#https://github.com/Kobold/text_histogram
+
 live = False
 
 class MVSD(object):
@@ -48,7 +51,7 @@ def median(values):
     values = sorted(values)
     return sum([values[round(i)] for i in median_indeces]) / len(median_indeces)
 
-def histogram(stream, req_mem = 0, timeflag = False, minimum=None, maximum=None, buckets=None, custbuckets=None, calc_msvd=True):
+def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False, minimum=None, maximum=None, buckets=None, custbuckets=None, calc_msvd=True):
     """
     Loop over the stream and add each entry to the dataset, printing out at the end
 
@@ -113,16 +116,20 @@ def histogram(stream, req_mem = 0, timeflag = False, minimum=None, maximum=None,
         if req_mem:
             #first, parse req_mem from KB or GB to MB, and turn it into an int
             if req_mem[-2] == 'G':
-                req_mem = int(req_mem[:-2]) * 1000
+                req_mem_int = int(req_mem[:-2]) * 1000
             elif req_mem[-2] == 'K':
-                req_mem = int(req_mem[:-2]) / 1000
+                req_mem_int = int(req_mem[:-2]) / 1000
             else:
-                req_mem = int(req_mem[:-2])
+                req_mem_int = int(req_mem[:-2])
 
-            #then, if the requested memory is greater than the most demanding job, redo the boundaries
-            if max_v <= req_mem:
+            #first, check if the memory was requested per node or per cpu
+            if req_mem[-1] == 'c':
+                req_mem_int *= int(req_cpus)
+
+            #lastly, if the requested memory is not greater than the most demanding job, redo the boundaries so that the maximum of the last bin is the total requested memory
+            if max_v <= req_mem_int:
                 excess_msg = False
-                boundaries = [(req_mem/10)*x  for x in range(1,11)]
+                #boundaries = [(req_mem_int/10)*x  for x in range(1,11)]
 
     skipped = 0
     samples = 0
@@ -147,6 +154,7 @@ def histogram(stream, req_mem = 0, timeflag = False, minimum=None, maximum=None,
     if max(bucket_counts) > 75:
         bucket_scale = int(max(bucket_counts) / 75)
 
+    #the histograms for time and memory usage are formatted differently
     if timeflag:
         print('========== Elapsed Time ==========')
         print("# NumSamples = %d; Min = %s; Max = %s" % (samples, int_to_time(round(min_v)), int_to_time(round(max_v))))
@@ -164,18 +172,25 @@ def histogram(stream, req_mem = 0, timeflag = False, minimum=None, maximum=None,
             star_count = 0
             if bucket_count:
                 star_count = bucket_count / bucket_scale
-            print('{:10s} - {:10s} [{:2d}]: {}'.format(int_to_time(round(bucket_min)), int_to_time(round(bucket_max)), bucket_count, '∎'*int(star_count)))
-        print('='*34)
+            print('{:10s} - {:10s} [{:4d}]: {}'.format(int_to_time(round(bucket_min)), int_to_time(round(bucket_max)), bucket_count, '∎'*int(star_count)))
+
+        
+        if req_time != 0 and time_to_int(req_time)*4 >= mvsd.mean():
+            print('*'*80)
+            print('The requested runtime was %s.\nThe average runtime was %s.\nRequesting less time would allow jobs to run more quickly.' % (req_time, int_to_time(round(mvsd.mean()))))
+            print('*'*80)
+        
+    
     else:        
         print('========== Max Memory Usage ==========')
-        print("# NumSamples = %d; Min = %d MB; Max = %d MB" % (samples, min_v, max_v))
+        print("# NumSamples = %d; Min = %0.2f MB; Max = %0.2f MB" % (samples, min_v, max_v))
         if skipped:
             print("# %d value%s outside of min/max" % (skipped, skipped > 1 and 's' or ''))
         if calc_msvd:
             print("# Mean = %0.2f MB; Variance = %0.2f MB; SD = %0.2f MB; Median %0.2f MB" % (mvsd.mean(), mvsd.var(), mvsd.sd(), median(accepted_data)))
         print("# each ∎ represents a count of %d" % bucket_scale)
-        bucket_min = 0
-        bucket_max = 0
+        bucket_min = min_v*0.9
+        bucket_max = min_v*0.9
         for bucket in range(buckets):
             bucket_min = bucket_max
             bucket_max = boundaries[bucket]
@@ -183,11 +198,11 @@ def histogram(stream, req_mem = 0, timeflag = False, minimum=None, maximum=None,
             star_count = 0
             if bucket_count:
                 star_count = bucket_count / bucket_scale
-            print('%10.4f - %10.4f MB [%2d]: %s' % (bucket_min, bucket_max, bucket_count, '∎' * int(star_count)))
-        print('%d MB was requested per job.' % req_mem)
-        if excess_msg:
-            print('Some jobs used more memory than requested.')
-        print('='*34)
+            print('%10.4f - %10.4f MB [%4d]: %s' % (bucket_min, bucket_max, bucket_count, '∎' * int(star_count)))
+        if req_mem_int/5 >= mvsd.mean():
+            print('*'*80)
+            print('The requested memory was %sMB.\nThe average memory usage was %sMB.\nRequesting less memory would allow jobs to run more quickly.' % (req_mem_int, round(mvsd.mean())))
+            print('*'*80)
 
 def time_to_int(time): #hh:mm:ss --> s
     time = time.split(':')
@@ -225,17 +240,19 @@ elapsed_list = []
 maxRSS_list= []
 
 if live:
-    query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem' % '<job_id>' 
+    query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS' % '<job_id>' 
     result = subprocess.check_output([query], shell=True)
     data = result.split('|')
 
 else:
-    with open('sacctdata.txt') as f:
+    with open('test.txt') as f:
         headers = f.readline()
         data = f.readlines()
         f.close()
 
-req_mem = data[0].split('|')[-2]
+req_mem = data[0].split('|')[4]
+req_cpus = data[0].split('|')[5]
+req_time = data[0].split('|')[6]
 
 for line in data:
     line = line.split('|')
@@ -266,10 +283,10 @@ for pair in data_collector.values():
     maxRSS_list.append(pair[0])
     elapsed_list.append(pair[1])
 
-histogram(maxRSS_list, req_mem = req_mem)
+histogram(maxRSS_list, req_mem = req_mem, req_cpus = req_cpus)
 #print(elapsed_list)
 #print(list(map(time_to_int, elapsed_list)))
-histogram(list(map(time_to_int, elapsed_list)), timeflag=True)
+histogram(list(map(time_to_int, elapsed_list)), timeflag=True, req_time = req_time)
 
 
 
