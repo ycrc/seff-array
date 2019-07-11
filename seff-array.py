@@ -1,7 +1,6 @@
 from decimal import Decimal
 import math
-import random
-import sys
+import argparse
 import subprocess
 
 #Histogram code (with modifications) from 
@@ -160,10 +159,10 @@ def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False,
         if skipped:
             print("# %d value%s outside of min/max" % (skipped, skipped > 1 and 's' or ''))
         if calc_msvd:
-            print("# Mean = %s; Variance = %s; SD = %s; Median %s" % ( int_to_time(round(mvsd.mean())), int_to_time(round(mvsd.var())), int_to_time(round(mvsd.sd())), int_to_time(round(median(accepted_data)))))
+            print("# Mean = %s; SD = %s; Median %s" % ( int_to_time(round(mvsd.mean())), int_to_time(round(mvsd.sd())), int_to_time(round(median(accepted_data)))))
         print("# each ∎ represents a count of %d" % bucket_scale)
-        bucket_min = 0
-        bucket_max = 0
+        bucket_min = min_v*0.9
+        bucket_max = min_v*0.9
         for bucket in range(buckets):
             bucket_min = bucket_max
             bucket_max = boundaries[bucket]
@@ -204,11 +203,15 @@ def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False,
             print('*'*80)
 
 def time_to_int(time): #hh:mm:ss --> s
+    if '-' in time:
+        days = int(time.split('-')[0])*86400
+        time = time.split('-')[1]
     time = time.split(':')
     hours = int(time[0])*3600
     mins = int(time[1])*60
     secs = int(time[2])
     return(hours+mins+secs)
+
 
 def int_to_time(secs): #s --> hh:mm:ss
     hours = 0
@@ -239,7 +242,11 @@ elapsed_list = []
 maxRSS_list= []
 
 if live:
-    arrayID = input('Job Array ID: ')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("arrayID")
+    args = parser.parse_args()
+    arrayID = args.arrayID
+
     query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS,Timelimit' % arrayID
     result = subprocess.check_output([query], shell=True)
     result = str(result, 'utf-8')
