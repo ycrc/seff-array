@@ -287,16 +287,40 @@ for line in data:
     else:
         data_collector[jobID][0] += float(maxRSS)
 
-
-
 for pair in data_collector.values():
     maxRSS_list.append(pair[0])
     elapsed_list.append(pair[1])
 
-print('\n')
-histogram(maxRSS_list, req_mem = req_mem, req_cpus = req_cpus)
-print('\n')
-histogram(list(map(time_to_int, elapsed_list)), timeflag=True, req_time = req_time)
+#single job handling
+if len(maxRSS_list) == 1:
+    print('======Job ID: %s======' % list(data_collector)[0])
+    print('Memory Usage: %sMB' % maxRSS_list[0])
+    print('Requested Memory: %s' % req_mem.replace('c','B').replace('n','B'))
+
+    #parse req_mem 
+    if req_mem[-2] == 'G':
+        req_mem_int = int(req_mem[:-2]) * 1000
+    elif req_mem[-2] == 'K':
+        req_mem_int = int(req_mem[:-2]) / 1000
+    else:
+        req_mem_int = int(req_mem[:-2])
+
+    mem_eff = (float(maxRSS_list[0])/req_mem_int) * 100
+    print('This job used %0.2f%% of its requested memory.' % mem_eff)
+    if mem_eff < 20:
+        print('Consider requesting less memory to quicken runtime. ')
+    print('')
+    print('Elapsed Time: %s' % elapsed_list[0])
+    print('Requested Time: %s' % req_time)
+
+    time_eff = time_to_int(elapsed_list[0])/time_to_int(req_time) * 100
+    print('This job used %0.2f%% of its requested time.' % time_eff)
+    if time_eff < 20:
+        print('Consider requesting less time to quicken runtime. ')
+else:
+    histogram(maxRSS_list, req_mem = req_mem, req_cpus = req_cpus)
+    print('')
+    histogram(list(map(time_to_int, elapsed_list)), timeflag=True, req_time = req_time)
 
 
 
