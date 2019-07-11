@@ -7,6 +7,7 @@ import subprocess
 #Histogram code (with modifications) from 
 #https://github.com/Kobold/text_histogram
 
+#set True when running on cluster, False when running locally
 live = False
 
 class MVSD(object):
@@ -61,7 +62,7 @@ def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False,
     custbuckets: Comma seperated list of bucket edges for the histogram
     calc_msvd: Calculate and display Mean, Variance and SD.
     """
-    excess_msg = True
+    
     if not minimum or not maximum:
         # glob the iterator here so we can do min/max on it
         data = list(stream)
@@ -126,10 +127,8 @@ def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False,
             if req_mem[-1] == 'c':
                 req_mem_int *= int(req_cpus)
 
-            #lastly, if the requested memory is not greater than the most demanding job, redo the boundaries so that the maximum of the last bin is the total requested memory
-            if max_v <= req_mem_int:
-                excess_msg = False
-                #boundaries = [(req_mem_int/10)*x  for x in range(1,11)]
+            #lastly, redo the boundaries so that the maximum of the last bin is the total requested memory 
+            #boundaries = [(req_mem_int/10)*x  for x in range(1,11)] 
 
     skipped = 0
     samples = 0
@@ -240,9 +239,11 @@ elapsed_list = []
 maxRSS_list= []
 
 if live:
-    query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS' % '<job_id>' 
+    arrayID = input('Job Array ID: ')
+    query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS,Timelimit' % arrayID
     result = subprocess.check_output([query], shell=True)
-    data = result.split('|')
+    result = str(result, 'utf-8')
+    data = result.split('\n')[1:]
 
 else:
     with open('test.txt') as f:
@@ -255,6 +256,8 @@ req_cpus = data[0].split('|')[5]
 req_time = data[0].split('|')[6]
 
 for line in data:
+    if line == '' or line == '\n':
+        continue
     line = line.split('|')
     jobID = line[0].split('.')[0]
     maxRSS = line[2]
@@ -268,7 +271,7 @@ for line in data:
     elif 'M' in maxRSS:
         maxRSS = maxRSS.replace('M', '')
         maxRSS = float(maxRSS)
-    elif 'G' in maxRSS: #i haven't seen this big of a maxRSS yet, but just in case
+    elif 'G' in maxRSS: 
         maxRSS = maxRSS.replace('G', '')
         maxRSS = float(maxRSS)*1000
     
@@ -283,9 +286,9 @@ for pair in data_collector.values():
     maxRSS_list.append(pair[0])
     elapsed_list.append(pair[1])
 
+print('\n')
 histogram(maxRSS_list, req_mem = req_mem, req_cpus = req_cpus)
-#print(elapsed_list)
-#print(list(map(time_to_int, elapsed_list)))
+print('\n')
 histogram(list(map(time_to_int, elapsed_list)), timeflag=True, req_time = req_time)
 
 
