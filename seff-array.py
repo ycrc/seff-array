@@ -173,10 +173,12 @@ def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False,
             print('{:10s} - {:10s} [{:4d}]: {}'.format(int_to_time(round(bucket_min)), int_to_time(round(bucket_max)), bucket_count, '∎'*int(star_count)))
 
         
-        if req_time != 0 and time_to_int(req_time)*4 >= mvsd.mean():
+        if req_time != 0 and mvsd.mean()*4 <= time_to_int(req_time):
             print('*'*80)
             print('The requested runtime was %s.\nThe average runtime was %s.\nRequesting less time would allow jobs to run more quickly.' % (req_time, int_to_time(round(mvsd.mean()))))
             print('*'*80)
+        else:
+            print('The requested runtime was %s.' % req_time)
         
     
     else:        
@@ -201,8 +203,11 @@ def histogram(stream, req_mem = 0, req_cpus = 0, req_time = 0, timeflag = False,
             print('*'*80)
             print('The requested memory was %sMB.\nThe average memory usage was %sMB.\nRequesting less memory would allow jobs to run more quickly.' % (req_mem_int, round(mvsd.mean())))
             print('*'*80)
+        else: 
+            print('The requested memory was %sMB.' % req_mem_int)
 
 def time_to_int(time): #hh:mm:ss --> s
+    days = 0
     if '-' in time:
         days = int(time.split('-')[0])*86400
         time = time.split('-')[1]
@@ -210,7 +215,7 @@ def time_to_int(time): #hh:mm:ss --> s
     hours = int(time[0])*3600
     mins = int(time[1])*60
     secs = int(time[2])
-    return(hours+mins+secs)
+    return(days+hours+mins+secs)
 
 
 def int_to_time(secs): #s --> hh:mm:ss
@@ -308,7 +313,7 @@ if len(maxRSS_list) == 1:
     mem_eff = (float(maxRSS_list[0])/req_mem_int) * 100
     print('This job used %0.2f%% of its requested memory.' % mem_eff)
     if mem_eff < 20:
-        print('Consider requesting less memory to quicken runtime. ')
+        print('Consider requesting less memory to decrease waittime. ')
     print('')
     print('Elapsed Time: %s' % elapsed_list[0])
     print('Requested Time: %s' % req_time)
@@ -316,11 +321,13 @@ if len(maxRSS_list) == 1:
     time_eff = time_to_int(elapsed_list[0])/time_to_int(req_time) * 100
     print('This job used %0.2f%% of its requested time.' % time_eff)
     if time_eff < 20:
-        print('Consider requesting less time to quicken runtime. ')
+        print('Consider requesting less time to decrease waittime. ')
 else:
     histogram(maxRSS_list, req_mem = req_mem, req_cpus = req_cpus)
     print('')
     histogram(list(map(time_to_int, elapsed_list)), timeflag=True, req_time = req_time)
+
+
 
 
 
