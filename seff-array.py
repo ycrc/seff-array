@@ -6,9 +6,6 @@ import subprocess
 # Histogram code (with modifications) from
 # https://github.com/Kobold/text_histogram
 
-# set True when running on cluster, False when running locally
-live = False
-
 
 class MVSD(object):
     # A class that calculates a running Mean / Variance
@@ -290,11 +287,7 @@ def main():
     elapsed_list = []
     maxRSS_list = []
 
-    if live:
-        parser = argparse.ArgumentParser()
-        parser.add_argument('arrayID')
-        args = parser.parse_args()
-        arrayID = args.arrayID
+    if arrayID:
         query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,\
                  ReqCPUS,Timelimit' % arrayID
         result = subprocess.check_output([query], shell=True)
@@ -302,7 +295,7 @@ def main():
         data = result.split('\n')[1:]
 
     else:
-        with open('test.txt') as f:
+        with open(inputfile) as f:
             headers = f.readline()
             data = f.readlines()
             f.close()
@@ -376,4 +369,13 @@ def main():
 
 
 if __name__ == '__main__':
+        
+    parser = argparse.ArgumentParser()
+    parser.add_argument('jobid', nargs='?')
+    parser.add_argument('-i', '--input', help='input file in current directory')
+    args = parser.parse_args()
+
+    arrayID = args.jobID
+    inputfile = args.input
+
     main()
