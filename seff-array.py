@@ -1,7 +1,11 @@
+#!/usr/bin/env python
+# coding: utf-8
 from decimal import Decimal
+import textwrap
 import math
 import argparse
 import subprocess
+import sys
 
 # Histogram code (with modifications) from
 # https://github.com/Kobold/text_histogram
@@ -53,7 +57,7 @@ def median(values):
         median_indices = [length/2-1, length/2]
 
     values = sorted(values)
-    return sum([values[round(i)] for i in median_indices])/len(median_indices)
+    return sum([values[int(i)] for i in median_indices])/len(median_indices)
 
 
 def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
@@ -233,10 +237,10 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
                   (bucket_min, bucket_max, bucket_count, '∎' * star_count))
         if req_mem_int/5 >= mvsd.mean():
             print('*'*80)
-            print('The requested memory was %sMB. \
-                 \nThe average memory usage was %sMB. \
-                 \nRequesting less memory would allow \
-                   jobs to run more quickly.' %
+            print('The requested memory was %sMB.'
+                  '\nThe average memory usage was %sMB.'
+                  '\nRequesting less memory would allow'
+                  ' jobs to run more quickly.' %
                   (req_mem_int, round(mvsd.mean())))
             print('*'*80)
         else:
@@ -288,17 +292,20 @@ def main():
     maxRSS_list = []
 
     if arrayID:
-        query = 'sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,\
-                 ReqCPUS,Timelimit' % arrayID
+        query = ('sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
+                'ReqMem,ReqCPUS,Timelimit' % arrayID)
         result = subprocess.check_output([query], shell=True)
-        result = str(result, 'utf-8')
+
+        if sys.version_info[0] >= 3:
+            result = str(result, 'utf-8')
+
         data = result.split('\n')[1:]
 
     else:
         with open(inputfile) as f:
-            headers = f.readline()
-            data = f.readlines()
-            f.close()
+                headers = f.readline()
+                data = f.readlines()
+                f.close()
 
     req_mem = data[0].split('|')[4]
     req_cpus = data[0].split('|')[5]
@@ -369,13 +376,32 @@ def main():
 
 
 if __name__ == '__main__':
-        
-    parser = argparse.ArgumentParser()
+
+    desc = """
+    seff-array
+    https://github.com/marklisi1/seff-array
+    ---------------
+    An extension of the Slurm command 'seff' designed to handle job arrays and display information in a histogram.
+
+    seff-array generates two histograms; one for the maximum memory usage of each job in the array, and one for the runtime of each job.
+
+    To use seff-array on the job array with ID '12345678', simply run 'seff-array 12345678'.
+    You can also use seff-array on a text file containing the results of the command:
+        'sacct -p -j <your_id> --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS,Timelimit'
+    To do this, use the '-i' flag: 'seff-array -i <filename.txt>'
+
+    Other things can go here in the future.
+    -----------------
+    """
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     description=textwrap.dedent(desc))
     parser.add_argument('jobid', nargs='?')
     parser.add_argument('-i', '--input', help='input file in current directory')
     args = parser.parse_args()
 
-    arrayID = args.jobID
+    arrayID = args.jobid
     inputfile = args.input
-
     main()
+
+
