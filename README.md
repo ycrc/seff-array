@@ -5,5 +5,7 @@ seff-array generates two histograms; one for the maximum memory usage of each jo
 
 To use seff-array on the job array with ID '12345678', simply run 'seff-array 12345678'.
 You can also use seff-array on a text file containing the results of the command:
-    'sacct -p -j <your_id> --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS,Timelimit'
+
+'sacct -p -j <your_id> --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS,Timelimit'
+
 To do this, use the '-i' flag: 'seff-array -i <filename.txt>'
