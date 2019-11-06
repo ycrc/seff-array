@@ -286,26 +286,19 @@ def int_to_time(secs):
     return(hours + ':' + mins + ':' + secs)
 
 
-def main():
+def main(arrayID):
     data_collector = {}  # key = job_id; val = [maxRSS, elapsed]
     elapsed_list = []
     maxRSS_list = []
 
-    if arrayID:
-        query = ('sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
-                'ReqMem,ReqCPUS,Timelimit' % arrayID)
-        result = subprocess.check_output([query], shell=True)
+    query = ('sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
+            'ReqMem,ReqCPUS,Timelimit' % arrayID)
+    result = subprocess.check_output([query], shell=True)
 
-        if sys.version_info[0] >= 3:
-            result = str(result, 'utf-8')
+    if sys.version_info[0] >= 3:
+        result = str(result, 'utf-8')
 
-        data = result.split('\n')[1:]
-
-    else:
-        with open(inputfile) as f:
-                headers = f.readline()
-                data = f.readlines()
-                f.close()
+    data = result.split('\n')[1:]
 
     req_mem = data[0].split('|')[4]
     req_cpus = data[0].split('|')[5]
@@ -379,7 +372,7 @@ if __name__ == '__main__':
 
     desc = """
     seff-array
-    https://github.com/marklisi1/seff-array
+    https://github.com/ycrc/seff-array
     ---------------
     An extension of the Slurm command 'seff' designed to handle job arrays and display information in a histogram.
 
@@ -396,12 +389,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
                                      description=textwrap.dedent(desc))
-    parser.add_argument('jobid', nargs='?')
-    parser.add_argument('-i', '--input', help='input file in current directory')
+    parser.add_argument('jobid')
     args = parser.parse_args()
 
-    arrayID = args.jobid
-    inputfile = args.input
-    main()
+    main(args.jobid)
 
 
