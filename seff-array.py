@@ -10,6 +10,7 @@ import sys
 # Histogram code (with modifications) from
 # https://github.com/Kobold/text_histogram
 
+__version__ = 0.1
 
 class MVSD(object):
     # A class that calculates a running Mean / Variance
@@ -370,8 +371,8 @@ def main(arrayID):
 
 if __name__ == '__main__':
 
-    desc = """
-    seff-array
+    desc = f"""
+    seff-array v{__version__}
     https://github.com/ycrc/seff-array
     ---------------
     An extension of the Slurm command 'seff' designed to handle job arrays and display information in a histogram.
