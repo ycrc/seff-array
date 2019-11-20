@@ -371,8 +371,8 @@ def main(arrayID):
 
 if __name__ == '__main__':
 
-    desc = f"""
-    seff-array v{__version__}
+    desc = """
+    seff-array v%s
     https://github.com/ycrc/seff-array
     ---------------
     An extension of the Slurm command 'seff' designed to handle job arrays and display information in a histogram.
@@ -386,7 +386,7 @@ if __name__ == '__main__':
 
     Other things can go here in the future.
     -----------------
-    """
+    """ % __version__
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
                                      description=textwrap.dedent(desc))
