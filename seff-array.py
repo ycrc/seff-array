@@ -11,7 +11,7 @@ import sys
 # https://github.com/Kobold/text_histogram
 
 __version__ = 0.1
-debug = True
+debug = False
 
 class MVSD(object):
     # A class that calculates a running Mean / Variance
@@ -306,23 +306,30 @@ def main(arrayID):
         file = open(sys.argv[1], "r")
         result = file.read()
     else:
-        query = ('sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
-                'ReqMem,ReqCPUS,Timelimit' % arrayID)
+        query = ('sacct -n -P -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
+                'ReqMem,ReqCPUS,Timelimit,State' % arrayID)
         result = subprocess.check_output([query], shell=True)
 
     if sys.version_info[0] >= 3:
         result = str(result, 'utf-8')
 
-    data = result.split('\n')[1:]
+    data = result.split('\n')
 
     data = [x for x in data if x != ""] # remove all empty lines
-    if not data:
-        print("Jobs not completed yet.")
+
+    if len(data) == 0:
+        print("Job not found.")
         return 
 
     req_mem = data[0].split('|')[4]
     req_cpus = data[0].split('|')[5]
     req_time = data[0].split('|')[6]
+    job_state = data[0].split('|')[7]
+
+    if job_state != "COMPLETED" or job_state != "FAILED":
+        print("No info to show for job %s" % arrayID)
+        print("Current status for job: %s" % job_state)
+        return
 
     for line in data:
         if line == '' or line == '\n':
