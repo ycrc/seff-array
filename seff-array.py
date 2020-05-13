@@ -326,7 +326,8 @@ def main(arrayID):
     req_time = data[0].split('|')[6]
     job_state = data[0].split('|')[7]
 
-    if job_state != "COMPLETED" or job_state != "FAILED":
+
+    if job_state != "COMPLETED" and job_state != "FAILED":
         print("No info to show for job %s" % arrayID)
         print("Current status for job: %s" % job_state)
         return
