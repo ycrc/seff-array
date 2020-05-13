@@ -11,6 +11,7 @@ import sys
 # https://github.com/Kobold/text_histogram
 
 __version__ = 0.1
+debug = True
 
 class MVSD(object):
     # A class that calculates a running Mean / Variance
@@ -85,6 +86,15 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
         data = list(stream)
     else:
         data = stream
+
+    # Error handling for empty list of jobs
+    # if not data:
+    #     if timeflag:
+    #         print('Job(s) have not yet completed: No time info to show.')
+    #     else:
+    #         print('Job(s) have not yet completed: No memory info to show.')
+    #     return 
+
     bucket_scale = 1
 
     if minimum:
@@ -292,14 +302,23 @@ def main(arrayID):
     elapsed_list = []
     maxRSS_list = []
 
-    query = ('sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
-            'ReqMem,ReqCPUS,Timelimit' % arrayID)
-    result = subprocess.check_output([query], shell=True)
+    if (debug):
+        file = open(sys.argv[1], "r")
+        result = file.read()
+    else:
+        query = ('sacct -p -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
+                'ReqMem,ReqCPUS,Timelimit' % arrayID)
+        result = subprocess.check_output([query], shell=True)
 
     if sys.version_info[0] >= 3:
         result = str(result, 'utf-8')
 
     data = result.split('\n')[1:]
+
+    data = [x for x in data if x != ""] # remove all empty lines
+    if not data:
+        print("Jobs not completed yet.")
+        return 
 
     req_mem = data[0].split('|')[4]
     req_cpus = data[0].split('|')[5]
