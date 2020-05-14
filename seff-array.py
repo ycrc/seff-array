@@ -284,9 +284,9 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
                   (bucket_min, bucket_max, bucket_count, '∎' * star_count))
         if 50 >= mvsd.mean():
             print('*'*80)
-            print('The requested number of CPUs is %s.'
+            print('The requested number of cores is %s.'
                   '\nThe average CPU usage was %s%%.'
-                  '\nConsider requesting less CPUs would allow'
+                  '\nConsider requesting less cores would allow'
                   ' jobs to run more quickly.' %
                   (req_cpus, round(mvsd.mean())))
             print('*'*80)
@@ -337,7 +337,7 @@ def int_to_time(secs):
 
 
 def main(arrayID):
-    data_collector = {}  # key = job_id; val = [maxRSS, elapsed]
+    data_collector = {}  # key = job_id; val = [maxRSS, elapsed, cpuTime]
     elapsed_list = []
     maxRSS_list = []
     cpuTime_list = []
@@ -415,9 +415,10 @@ def main(arrayID):
         elapsed_list.append(triple[1])
         cpuTime_list.append(triple[2])
 
+    print('======Job ID: %s======' % list(data_collector)[0])
+
     # single job handling
     if len(maxRSS_list) == 1:
-        print('======Job ID: %s======' % list(data_collector)[0])
         print('Memory Usage: %sMB' % maxRSS_list[0])
         print('Requested Memory: %s' %
               req_mem.replace('c', 'B').replace('n', 'B'))
@@ -442,6 +443,12 @@ def main(arrayID):
         print('This job used %0.2f%% of its requested time.' % time_eff)
         if time_eff < 20:
             print('Consider requesting less time to decrease waittime. ')
+
+        print('')
+        print('Requested Cores: %s' % req_cpus)
+        print('CPU efficiency for this job is %0.2f%%.' % cpuTime_list[0])
+        if (cpuTime_list[0] < 50):
+            print('Consider requesting less cores to decrease waittime.')
     else:
         histogram(maxRSS_list, form=0, req_mem=req_mem, req_cpus=req_cpus)
         print('')
