@@ -63,7 +63,7 @@ def median(values):
 
 
 def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
-              timeflag=False, minimum=None, maximum=None,
+              form=0, minimum=None, maximum=None,
               buckets=None, custbuckets=None, calc_msvd=True):
     """
     Loop over the stream and add each entry to the dataset,
@@ -74,7 +74,8 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
     req_mem: requested memory for the job array
     req_cpus: requested cores for the job array
     req_time: requested runtime for the job array
-    timeflag: distinguishes between the memory and time histograms
+    (removed) timeflag: distinguishes between the memory and time histograms
+    (added) form: 0 (memory), 1 (time), 2 (cpu)
     minimum: minimum value for graph
     maximum: maximum value for graph
     buckets: Number of buckets to use for the histogram
@@ -118,14 +119,14 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
         bound_sort = sorted(map(Decimal, bound))
 
         # if the last value is smaller than the maximum, replace it
-        if bound_sort[-1] < max_v:
-            bound_sort[-1] = max_v
+        # if bound_sort[-1] < max_v:
+        #     bound_sort[-1] = max_v
 
         # iterate through the sorted list and append to boundaries
         for x in bound_sort:
-            if x >= min_v and x <= max_v:
+            if x <= max_v:
                 boundaries.append(x)
-            elif x >= max_v:
+            else:
                 boundaries.append(max_v)
                 break
 
@@ -184,7 +185,7 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
         bucket_scale = int(max(bucket_counts) / 60)
 
     # histograms for time and memory usage are formatted differently
-    if timeflag:
+    if form == 1:
         print('========== Elapsed Time ==========')
         print('# NumSamples = %d; Min = %s; Max = %s' %
               (samples, int_to_time(round(min_v)), int_to_time(round(max_v))))
@@ -222,7 +223,7 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
         else:
             print('The requested runtime was %s.' % req_time)
 
-    else:
+    elif form == 0:
         print('========== Max Memory Usage ==========')
         print('# NumSamples = %d; Min = %0.2f MB; Max = %0.2f MB' %
               (samples, min_v, max_v))
@@ -230,8 +231,8 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
             print('# %d value%s outside of min/max' %
                   (skipped, skipped > 1 and 's' or ''))
         if calc_msvd:
-            print('# Mean = %0.2f MB; Variance = %0.2f MB; \
-                  SD = %0.2f MB; Median %0.2f MB' %
+            print('# Mean = %0.2f MB; Variance = %0.2f MB; '\
+                   'SD = %0.2f MB; Median %0.2f MB' %
                   (mvsd.mean(), mvsd.var(), mvsd.sd(), median(accepted_data)))
 
         print('# each ∎ represents a count of %d' % bucket_scale)
@@ -256,18 +257,56 @@ def histogram(stream, req_mem=0, req_cpus=0, req_time=0,
             print('*'*80)
         else:
             print('The requested memory was %sMB.' % req_mem_int)
+    else:
+        print('========== CPU Utilization ==========')
+        print('# NumSamples = %d; Min = %s%%; Max = %s%%' %
+              (samples, int(round(min_v)), int(round(max_v))))
+        if skipped:
+            print('# %d value%s outside of min/max' %
+                  (skipped, skipped > 1 and 's' or ''))
+        if calc_msvd:
+            print('# Mean = %s%%; SD = %s%%; Median %s%%' %
+                  (int(round(mvsd.mean())),
+                   int(round(mvsd.sd())),
+                   int(round(median(accepted_data)))))
+
+        print('# each ∎ represents a count of %d' % bucket_scale)
+        bucket_min = min_v*0.9
+        bucket_max = min_v*0.9
+        for bucket in range(1, buckets):
+            bucket_min = boundaries[bucket - 1] 
+            bucket_max = boundaries[bucket]
+            bucket_count = bucket_counts[bucket]
+            star_count = 0
+            if bucket_count:
+                star_count = bucket_count // bucket_scale
+            print('%6.2f%% - %6.2f%% [%4d]: %s' %
+                  (bucket_min, bucket_max, bucket_count, '∎' * star_count))
+        if 50 >= mvsd.mean():
+            print('*'*80)
+            print('The requested number of CPUs is %s.'
+                  '\nThe average CPU usage was %s%%.'
+                  '\nConsider requesting less CPUs would allow'
+                  ' jobs to run more quickly.' %
+                  (req_cpus, round(mvsd.mean())))
+            print('*'*80)
+        else:
+            print('The requested number of CPUs is %s.' % req_cpus)
 
 
 def time_to_int(time):
     """ converts hh:mm:ss time to seconds """
-    days = 0
+    days, hours = 0, 0
     if '-' in time:
         days = int(time.split('-')[0])*86400
         time = time.split('-')[1]
     time = time.split(':')
-    hours = int(time[0])*3600
-    mins = int(time[1])*60
-    secs = int(time[2])
+    if len(time) > 2:
+        hours = int(time[0])*3600
+    
+    mins = int(time[-2])*60
+    secs = float(time[-1])
+
     return(days+hours+mins+secs)
 
 
@@ -301,13 +340,14 @@ def main(arrayID):
     data_collector = {}  # key = job_id; val = [maxRSS, elapsed]
     elapsed_list = []
     maxRSS_list = []
+    cpuTime_list = []
 
     if (debug):
         file = open(sys.argv[1], "r")
         result = file.read()
     else:
         query = ('sacct -n -P -j %s --format=JobID,JobName,MaxRSS,Elapsed,'
-                'ReqMem,ReqCPUS,Timelimit,State' % arrayID)
+                'ReqMem,ReqCPUS,Timelimit,State,TotalCPU' % arrayID)
         result = subprocess.check_output([query], shell=True)
 
     if sys.version_info[0] >= 3:
@@ -315,23 +355,23 @@ def main(arrayID):
 
     data = result.split('\n')
 
-    data = [x for x in data if x != ""] # remove all empty lines
+    # data = [x for x in data if x != ""] # remove all empty lines
 
     if len(data) == 0:
         print("Job not found.")
         return 
 
-    req_mem = data[0].split('|')[4]
-    req_cpus = data[0].split('|')[5]
-    req_time = data[0].split('|')[6]
     job_state = data[0].split('|')[7]
-
 
     if job_state != "COMPLETED" and job_state != "FAILED":
         print("No info to show for job %s" % arrayID)
         print("Current status for job: %s" % job_state)
         return
 
+    req_mem = data[0].split('|')[4]
+    req_cpus = data[0].split('|')[5]
+    req_time = data[0].split('|')[6]
+   
     for line in data:
         if line == '' or line == '\n':
             continue
@@ -340,8 +380,9 @@ def main(arrayID):
         jobID = line[0].split('.')[0]
         maxRSS = line[2]
         elapsed = line[3]
+        cpuTime = line[8]
 
-        if maxRSS == '':
+        if maxRSS == '' or cpuTime == '':
             continue
         if 'K' in maxRSS:
             maxRSS = maxRSS.replace('K', '')
@@ -353,14 +394,26 @@ def main(arrayID):
             maxRSS = maxRSS.replace('G', '')
             maxRSS = float(maxRSS)*1000
 
+        cpuTime = time_to_int(cpuTime)
+        elapsedTime = time_to_int(elapsed)
+        num_req_cpus = int(req_cpus)
+        if elapsedTime == 0 or num_req_cpus == 0:
+            continue
+        used_cpu = (100*cpuTime/(elapsedTime * num_req_cpus))
+        if used_cpu > 100:
+            used_cpu = 100
+
         if jobID not in data_collector.keys():
-            data_collector[jobID] = [float(maxRSS), elapsed]
+            data_collector[jobID] = [float(maxRSS), elapsed, used_cpu]
         else:
             data_collector[jobID][0] += float(maxRSS)
+            data_collector[jobID][2] += used_cpu
 
-    for pair in data_collector.values():
-        maxRSS_list.append(pair[0])
-        elapsed_list.append(pair[1])
+
+    for triple in data_collector.values():
+        maxRSS_list.append(triple[0])
+        elapsed_list.append(triple[1])
+        cpuTime_list.append(triple[2])
 
     # single job handling
     if len(maxRSS_list) == 1:
@@ -390,10 +443,13 @@ def main(arrayID):
         if time_eff < 20:
             print('Consider requesting less time to decrease waittime. ')
     else:
-        histogram(maxRSS_list, req_mem=req_mem, req_cpus=req_cpus)
+        histogram(maxRSS_list, form=0, req_mem=req_mem, req_cpus=req_cpus)
         print('')
         histogram(list(map(time_to_int, elapsed_list)),
-                  timeflag=True, req_time=req_time)
+                  form=1, req_time=req_time)
+        print('')
+        buckets = "0,10,20,30,40,50,60,70,80,90,100"
+        histogram(cpuTime_list, form=2, req_cpus=req_cpus, custbuckets=buckets)
 
 
 if __name__ == '__main__':
