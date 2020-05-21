@@ -391,6 +391,8 @@ def str_to_mb(s, cores=1):
     if "c" in unit:
         num *= cores
 
+    unit = unit.replace("c", "B").replace("n", "B")
+    
     if unit == "GB":
         return round(num * 1000, 2)
     elif unit == "KB":
@@ -400,8 +402,8 @@ def str_to_mb(s, cores=1):
 
 # convert a mem str to the right unit with
 # num part between 1 <= x < 1000
-def fix_mem_str(s):
-    return mb_to_str(str_to_mb(s))
+def fix_mem_str(s, c=1):
+    return mb_to_str(str_to_mb(s, c))
 
 
 def print_states(d):
@@ -539,7 +541,7 @@ def main(arrayID, m, t, c, v):
         "Memory Efficiency: %0.2f%% of %s"
         % (
             100 * rss_sum / str_to_mb(req_mem, int(req_cpus)) / data_len,
-            fix_mem_str(req_mem),
+            fix_mem_str(req_mem, int(req_cpus)),
         )
     )
 
