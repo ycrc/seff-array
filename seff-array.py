@@ -149,9 +149,19 @@ def histogram(
         if buckets <= 0:
             raise ValueError("# of buckets must be > 0")
         step = diff / buckets
+
+        if form == 2 and step < 1: # cap cpu buckets to 1% wide
+            step = 1
+            buckets = int(round(diff / step))
+
+        buckets += 1
         bucket_counts = [0 for x in range(buckets)]
+
         for x in range(buckets):
-            boundaries.append(min_v + (step * (x + 1)))
+            boundaries.append(min_v + (step * (x)))
+
+        if boundaries[-1] > max_v:
+            boundaries[-1] = max_v
 
         if req_mem:
             req_mem_int = str_to_mb(req_mem, int(req_cpus))
@@ -181,12 +191,28 @@ def histogram(
                 break
 
     # auto-pick the hash scale
-    if max(bucket_counts) > 60:
-        bucket_scale = int(max(bucket_counts) / 60)
+    # reference: https://github.com/ycrc/dSQ/blob/a15a86f502a89eb7b515f466ad6a966bdcc6816b/dSQ.py#L26
+    term_columns = int(subprocess.check_output(["stty", "size"]).split()[1])
+
+    # fixed is the width of the longest fixed output in the histogram
+    if form == 0: 
+        fixed = 30
+    elif form == 1: 
+        fixed = 40
+    else: 
+        fixed = 26
+
+    # 5 so that the width of the histogram is somewhat reasonable
+    if (term_columns - fixed < 5):     # if window size too small or does not exist
+        term_columns = 100             # set to default of 100
+
+    if max(bucket_counts) > (term_columns - fixed):
+        bucket_scale = int(max(bucket_counts) / (term_columns - fixed))
 
     # histograms for time and memory usage are formatted differently
     if form == 1:
-        print("========== Elapsed Time ==========")
+        half_width = (term_columns - 14) // 2
+        print("=" * half_width + " Elapsed Time " + "=" * half_width)
         print(
             "# NumSamples = %d; Min = %s; Max = %s"
             % (samples, int_to_time(round(min_v)), int_to_time(round(max_v)))
@@ -216,7 +242,7 @@ def histogram(
             if bucket_count:
                 star_count = bucket_count // bucket_scale
             print(
-                "{:10s} - {:10s} [{:4d}]: {}".format(
+                "{:>14s} - {:>14s} [{:4d}]: {}".format(
                     int_to_time(round(bucket_min)),
                     int_to_time(round(bucket_max)),
                     bucket_count,
@@ -225,22 +251,23 @@ def histogram(
             )
 
         if req_time != 0 and mvsd.mean() * 4 <= time_to_int(req_time):
-            print("*" * 80)
+            print("*" * term_columns)
             print(
                 "The requested runtime was %s.\
                  \nThe average runtime was %s.\
                  \nRequesting less time would allow jobs to run more quickly."
                 % (req_time, int_to_time(round(mvsd.mean())))
             )
-            print("*" * 80)
+            print("*" * term_columns)
         else:
             print("The requested runtime was %s." % req_time)
 
     elif form == 0:
-        print("========== Max Memory Usage ==========")
+        half_width = (term_columns - 18) // 2
+        print("=" * half_width + " Max Memory Usage " + "=" * half_width)
         print(
-            "# NumSamples = %d; Min = %0.2f MB; Max = %0.2f MB"
-            % (samples, min_v, max_v)
+            "# NumSamples = %d; Min = %s; Max = %s"
+            % (samples, mb_to_str(min_v), mb_to_str(max_v))
         )
         if skipped:
             print(
@@ -248,9 +275,9 @@ def histogram(
             )
         if calc_msvd:
             print(
-                "# Mean = %0.2f MB; Variance = %0.2f MB; "
-                "SD = %0.2f MB; Median %0.2f MB"
-                % (mvsd.mean(), mvsd.var(), mvsd.sd(), median(accepted_data))
+                "# Mean = %s; "
+                "SD = %s; Median %s"
+                % (mb_to_str(mvsd.mean()), mb_to_str(mvsd.sd()), mb_to_str(median(accepted_data)))
             )
 
         print("# each ∎ represents a count of %d" % bucket_scale)
@@ -264,11 +291,11 @@ def histogram(
             if bucket_count:
                 star_count = bucket_count // bucket_scale
             print(
-                "%10.4f - %10.4f MB [%4d]: %s"
-                % (bucket_min, bucket_max, bucket_count, "∎" * star_count)
+                "%9s - %9s [%4d]: %s"
+                % (mb_to_str(bucket_min), mb_to_str(bucket_max), bucket_count, "∎" * star_count)
             )
         if req_mem_int / 5 >= mvsd.mean():
-            print("*" * 80)
+            print("*" * term_columns)
             print(
                 "The requested memory was %s."
                 "\nThe average memory usage was %s."
@@ -276,14 +303,15 @@ def histogram(
                 " jobs to run more quickly."
                 % (mb_to_str(req_mem_int), mb_to_str(round(mvsd.mean())))
             )
-            print("*" * 80)
+            print("*" * term_columns)
         else:
             print("The requested memory was %s." % mb_to_str(req_mem_int))
     else:
-        print("========== CPU Utilization ==========")
+        half_width = (term_columns - 17) // 2
+        print("=" * half_width + " CPU Utilization " + "=" * half_width)
         print(
-            "# NumSamples = %d; Min = %s%%; Max = %s%%"
-            % (samples, int(round(min_v)), int(round(max_v)))
+            "# NumSamples = %d; Min = %.2f%%; Max = %.2f%%"
+            % (samples, min_v, max_v)
         )
         if skipped:
             print(
@@ -291,11 +319,11 @@ def histogram(
             )
         if calc_msvd:
             print(
-                "# Mean = %s%%; SD = %s%%; Median %s%%"
+                "# Mean = %.2f%%; SD = %.2f%%; Median %.2f%%"
                 % (
-                    int(round(mvsd.mean())),
-                    int(round(mvsd.sd())),
-                    int(round(median(accepted_data))),
+                    mvsd.mean(),
+                    mvsd.sd(),
+                    median(accepted_data),
                 )
             )
 
@@ -314,14 +342,14 @@ def histogram(
                 % (bucket_min, bucket_max, bucket_count, "∎" * star_count)
             )
         if 50 >= mvsd.mean() and req_cpus > 1:
-            print("*" * 80)
+            print("*" * term_columns)
             print(
                 "The requested number of cores is %s."
                 "\nThe average CPU usage was %s%%."
                 "\nConsider requesting less cores would allow"
                 " jobs to run more quickly." % (req_cpus, round(mvsd.mean()))
             )
-            print("*" * 80)
+            print("*" * term_columns)
         else:
             print("The requested number of CPUs is %s." % req_cpus)
 
@@ -377,6 +405,7 @@ def int_to_time(secs):
 
 # convert megabytes to mem_str with units
 def mb_to_str(num):
+    num = float(num)
     if num > 10 ** 3:
         return str(round(num / 1000.0, 2)) + "GB"
     elif num < 1:
@@ -407,11 +436,12 @@ def fix_mem_str(s, c=1):
 
 
 def print_states(d):
-    print("---------------------")
+    term_columns = int(subprocess.check_output(["stty", "size"]).split()[1])
+    print("-" * term_columns)
     print("Job States")
     for state, value in d.items():
         print(state + ": " + str(value))
-    print("---------------------")
+    print("-" * term_columns)
 
 
 def main(arrayID, m, t, c, v):
@@ -437,9 +467,7 @@ def main(arrayID, m, t, c, v):
     if sys.version_info[0] >= 3:
         result = str(result, "utf-8")
 
-    data = result.split("\n")
-
-    data = [x for x in data if x != ""]  # remove all empty lines
+    data = [x for x in result.split("\n") if x != ""]  # remove all empty lines
 
     if len(data) == 0:
         print("Job not found.")
@@ -461,9 +489,6 @@ def main(arrayID, m, t, c, v):
         else:
             job_states[state] = 1
 
-    # print list of job states for job arrays
-    if len(job_states.keys()) > 1:
-        print_states(job_states)
 
     job_state = data[0].split("|")[7]
 
@@ -478,7 +503,7 @@ def main(arrayID, m, t, c, v):
     for line in data:
         if line == "" or line == "\n":
             continue
-        # print(line)
+
         line = line.split("|")
         jobID = line[0].split(".")[0]
         maxRSS = line[2]
@@ -517,37 +542,13 @@ def main(arrayID, m, t, c, v):
         elapsed_list.append(triple[1])
         cpuTime_list.append(triple[2])
 
+
     line = data[0].split("|")
     user = line[9]
     group = line[10]
     cluster = line[11]
     exit_code = line[12] if ":" not in line[12] else line[12].split(":")[0]
     data_len = len(data_collector.keys())
-
-    # normal seff stats
-    print("Job ID: %s" % arrayID)
-    print("Cluster: %s" % cluster)
-    print("User/Group: %s/%s" % (user, group))
-    print("State: %s (exit code %s)" % (job_state, exit_code))
-    print("Cores: %s" % req_cpus)
-    print("Average CPU Utilized: %s" % int_to_time(cpuTime_sum / len(cpuTime_list)))
-    print(
-        "Average CPU Efficiency: %0.2f%% of %s core-walltime"
-        % (100 * cpuTime_sum / elapsed_sum, int_to_time(elapsed_sum))
-    )
-    print("Job Wall-clock time: %s" % int_to_time(elapsed_sum))
-    print("Average Memory Utilized: %s" % mb_to_str(rss_sum / data_len))
-    print(
-        "Memory Efficiency: %0.2f%% of %s"
-        % (
-            100 * rss_sum / str_to_mb(req_mem, int(req_cpus)) / data_len,
-            fix_mem_str(req_mem, int(req_cpus)),
-        )
-    )
-
-    # if verbose flag is false, stop
-    if not v:
-        return
 
     # If all jobs omitted print warning and stop, else just print warning
     if data_len == 0:
@@ -561,6 +562,37 @@ def main(arrayID, m, t, c, v):
         )
         print("*****")
 
+
+    # normal seff stats
+    print("Job ID: %s" % arrayID)
+    print("Cluster: %s" % cluster)
+    print("User/Group: %s/%s" % (user, group))
+    print("State: %s (exit code %s)" % (job_state, exit_code))
+    print("Cores: %s" % req_cpus)
+    print("Average CPU Utilized: %s" % int_to_time(cpuTime_sum / len(cpuTime_list)))
+    print(
+        "CPU Efficiency: %0.2f%% of %s core-walltime"
+        % (100 * cpuTime_sum / elapsed_sum, int_to_time(elapsed_sum))
+    )
+    print("Job Wall-clock time: %s" % int_to_time(elapsed_sum))
+    print("Average Memory Utilized: %s" % mb_to_str(rss_sum / data_len))
+    print(
+        "Memory Efficiency: %0.2f%% of %s"
+        % (
+            100 * rss_sum / str_to_mb(req_mem, int(req_cpus)) / data_len,
+            fix_mem_str(req_mem, int(req_cpus)),
+        )
+    )
+
+    # print job states
+    if len(job_states.keys()) > 1:
+        print_states(job_states)
+
+    # if verbose flag is false, stop
+    if not v:
+        return
+
+    
     # single job handling
     if len(maxRSS_list) == 1:
         if m:
@@ -597,8 +629,9 @@ def main(arrayID, m, t, c, v):
             histogram(list(map(time_to_int, elapsed_list)), form=1, req_time=req_time)
             print("")
         if c:
-            buckets = "0,10,20,30,40,50,60,70,80,90,100"
-            histogram(cpuTime_list, form=2, req_cpus=req_cpus, custbuckets=buckets)
+            # buckets = "0,10,20,30,40,50,60,70,80,90,100"
+            # histogram(cpuTime_list, form=2, req_cpus=req_cpus, custbuckets=buckets)
+            histogram(cpuTime_list, form=2, req_cpus=req_cpus)
 
 
 if __name__ == "__main__":
@@ -633,7 +666,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--cpu", action="store_true", dest="c")
     parser.add_argument("-v", "--verbose", action="store_true", dest="v")
     args = parser.parse_args()
-    # print(args.m, args.t, args.c)
     if not (args.m or args.t or args.c):
         args.m, args.t, args.c = True, True, True
+
     main(args.jobid, args.m, args.t, args.c, args.v)
