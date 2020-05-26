@@ -207,7 +207,7 @@ def histogram(
         term_columns = 100             # set to default of 100
 
     if max(bucket_counts) > (term_columns - fixed):
-        bucket_scale = int(max(bucket_counts) / (term_columns - fixed))
+        bucket_scale = int(max(bucket_counts) / (term_columns - fixed)) + 1
 
     # histograms for time and memory usage are formatted differently
     if form == 1:
@@ -519,15 +519,13 @@ def main(arrayID, m, t, c, v):
         elapsedTime = time_to_int(elapsed)
         num_req_cpus = int(req_cpus)
 
-        if elapsedTime == 0 or num_req_cpus == 0:
-            skipped += 1
-            continue
+        used_cpu = 0
+        if elapsedTime != 0:
+            used_cpu = 100 * cpuTime / (elapsedTime * num_req_cpus)
+            cpuTime_sum += cpuTime
 
-        used_cpu = 100 * cpuTime / (elapsedTime * num_req_cpus)
-        cpuTime_sum += cpuTime
-
-        if used_cpu > 100:
-            used_cpu = 100
+            if used_cpu > 100:
+                used_cpu = 100
 
         if jobID not in data_collector.keys():
             data_collector[jobID] = [float(maxRSS), elapsed, used_cpu]
