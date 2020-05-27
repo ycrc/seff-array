@@ -10,7 +10,7 @@ seff-array generates three types of histograms:
 
 ## Usage:
 
-    `seff-array [-h] [-m] [-t] [-c] [-v] jobid`
+    seff-array [-h] [-m] [-t] [-c] [-v] jobid
 
     1. -m, --mem      show memory usage stats
     2. -t, --time     show time usage stats
