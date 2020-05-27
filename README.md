@@ -7,10 +7,10 @@ seff-array generates three types of histograms:
     3. CPU Utilization relative to the runtime
 
 Usage: `seff-array [-h] [-m] [-t] [-c] [-v] jobid`
-   `-m, --mem      show memory usage stats
-    -t, --time     show time usage stats
-    -c, --cpu      show cpu usage stats
-    -v, --verbose  enable to show histograms for job arrays`
+   `-m, --mem      show memory usage stats`
+   `-t, --time     show time usage stats`
+   `-c, --cpu      show cpu usage stats`
+   `-v, --verbose  enable to show histograms for job arrays`
 
 To use seff-array on the job array with ID `12345678`, simply run `seff-array 12345678`.
 The default when no flags given is -mtc (all stats). 
