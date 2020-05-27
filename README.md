@@ -27,5 +27,5 @@ Histograms and headings are designed to fit to 80% of your terminal window size.
 Note: if your terminal window is too small (less than ~45 columns wide), then `seff-array` assumes
 a terminal window of 100 columns wide. 
 
-Histogram bins vary according to the distribution of the data.There is a minimum bin width associated with each 
+Histogram bins vary according to the distribution of the data. There is a minimum bin width associated with each 
 type of histogram to avoid unnecessary precision when the data is extremely clustered. 
