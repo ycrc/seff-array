@@ -10,7 +10,7 @@ import sys
 # Histogram code (with modifications) from
 # https://github.com/Kobold/text_histogram
 
-__version__ = 0.1
+__version__ = 0.2
 debug = False
 
 
@@ -145,14 +145,26 @@ def histogram(
         bucket_counts = [0 for x in range(len(boundaries))]
         buckets = len(boundaries)
     else:
+        if req_mem:
+            req_mem_int = str_to_mb(req_mem, int(req_cpus))
+
         buckets = buckets or 10
         if buckets <= 0:
             raise ValueError("# of buckets must be > 0")
         step = diff / buckets
 
-        if form == 2 and step < 1: # cap cpu buckets to 1% wide
+        if form == 2 and step < 1:      
+            # cap cpu buckets to 1% wide
             step = 1
-            buckets = int(round(diff / step))
+            buckets = int(round(diff / step)) + 1
+        elif form == 1 and step < 60:   
+            # cap time buckets to 1 minute wide
+            step = 60
+            buckets = int(round(diff / step)) + 1
+        elif form == 0 and step < req_mem_int * 0.01:  
+            # cap mem buckets to 1% of its requested memory wide
+            step = req_mem_int * 0.01
+            buckets = int(round(diff / step)) + 1
 
         buckets += 1
         bucket_counts = [0 for x in range(buckets)]
@@ -163,13 +175,10 @@ def histogram(
         if boundaries[-1] > max_v:
             boundaries[-1] = max_v
 
-        if req_mem:
-            req_mem_int = str_to_mb(req_mem, int(req_cpus))
-
-            # OPTIONAL STYLE CHOICE:
-            # lastly, redo the boundaries so that the maximum
-            # of the last bin is the total requested memory
-            # boundaries = [(req_mem_int/10)*x  for x in range(1,11)]
+        # OPTIONAL STYLE CHOICE:
+        # lastly, redo the boundaries so that the maximum
+        # of the last bin is the total requested memory
+        # boundaries = [(req_mem_int/10)*x  for x in range(1,11)]
 
     skipped = 0
     samples = 0
@@ -192,7 +201,7 @@ def histogram(
 
     # auto-pick the hash scale
     # reference: https://github.com/ycrc/dSQ/blob/a15a86f502a89eb7b515f466ad6a966bdcc6816b/dSQ.py#L26
-    term_columns = int(subprocess.check_output(["stty", "size"]).split()[1])
+    term_columns = int(0.8 * int(subprocess.check_output(["stty", "size"]).split()[1]))
 
     # fixed is the width of the longest fixed output in the histogram
     if form == 0: 
@@ -203,8 +212,8 @@ def histogram(
         fixed = 26
 
     # 5 so that the width of the histogram is somewhat reasonable
-    if (term_columns - fixed < 5):     # if window size too small or does not exist
-        term_columns = 100             # set to default of 100
+    if (term_columns - fixed < 5):      # if window size too small or does not exist
+        term_columns = 100 * 0.8        # set to default size of 100
 
     if max(bucket_counts) > (term_columns - fixed):
         bucket_scale = int(max(bucket_counts) / (term_columns - fixed)) + 1
@@ -215,7 +224,7 @@ def histogram(
         print("=" * half_width + " Elapsed Time " + "=" * half_width)
         print(
             "# NumSamples = %d; Min = %s; Max = %s"
-            % (samples, int_to_time(round(min_v)), int_to_time(round(max_v)))
+            % (samples, float_to_time(round(min_v)), float_to_time(round(max_v)))
         )
         if skipped:
             print(
@@ -225,9 +234,9 @@ def histogram(
             print(
                 "# Mean = %s; SD = %s; Median %s"
                 % (
-                    int_to_time(round(mvsd.mean())),
-                    int_to_time(round(mvsd.sd())),
-                    int_to_time(round(median(accepted_data))),
+                    float_to_time(round(mvsd.mean())),
+                    float_to_time(round(mvsd.sd())),
+                    float_to_time(round(median(accepted_data))),
                 )
             )
 
@@ -243,20 +252,20 @@ def histogram(
                 star_count = bucket_count // bucket_scale
             print(
                 "{:>14s} - {:>14s} [{:4d}]: {}".format(
-                    int_to_time(round(bucket_min)),
-                    int_to_time(round(bucket_max)),
+                    float_to_time(round(bucket_min)),
+                    float_to_time(round(bucket_max)),
                     bucket_count,
                     "∎" * star_count,
                 )
             )
 
-        if req_time != 0 and mvsd.mean() * 4 <= time_to_int(req_time):
+        if req_time != 0 and mvsd.mean() * 4 <= time_to_float(req_time):
             print("*" * term_columns)
             print(
                 "The requested runtime was %s.\
                  \nThe average runtime was %s.\
                  \nRequesting less time would allow jobs to run more quickly."
-                % (req_time, int_to_time(round(mvsd.mean())))
+                % (req_time, float_to_time(round(mvsd.mean())))
             )
             print("*" * term_columns)
         else:
@@ -354,7 +363,7 @@ def histogram(
             print("The requested number of CPUs is %s." % req_cpus)
 
 
-def time_to_int(time):
+def time_to_float(time):
     """ converts [dd-[hh:]]mm:ss time to seconds """
     days, hours = 0, 0
 
@@ -372,7 +381,7 @@ def time_to_int(time):
     return days + hours + mins + secs
 
 
-def int_to_time(secs):
+def float_to_time(secs):
     """ converts seconds to [dd-[hh:]]mm:ss """
     days = secs // 86400
     secs %= 86400
@@ -436,7 +445,7 @@ def fix_mem_str(s, c=1):
 
 
 def print_states(d):
-    term_columns = int(subprocess.check_output(["stty", "size"]).split()[1])
+    term_columns = int(0.8 * int(subprocess.check_output(["stty", "size"]).split()[1]))
     print("-" * term_columns)
     print("Job States")
     for state, value in d.items():
@@ -515,30 +524,31 @@ def main(arrayID, m, t, c, v):
             continue
 
         maxRSS = str_to_mb(maxRSS + "B")
-        cpuTime = time_to_int(cpuTime)
-        elapsedTime = time_to_int(elapsed)
+        cpuTime = time_to_float(cpuTime)
+        elapsedTime = time_to_float(elapsed)
         num_req_cpus = int(req_cpus)
-
-        used_cpu = 0
+        cpuTime_sum += cpuTime / num_req_cpus 
+        
+        used_cpu = -1
         if elapsedTime != 0:
             used_cpu = 100 * cpuTime / (elapsedTime * num_req_cpus)
-            cpuTime_sum += cpuTime
-
             if used_cpu > 100:
                 used_cpu = 100
 
         if jobID not in data_collector.keys():
             data_collector[jobID] = [float(maxRSS), elapsed, used_cpu]
-            elapsed_sum += elapsedTime
+            elapsed_sum += elapsedTime 
             rss_sum += float(maxRSS)
         else:
             data_collector[jobID][0] += float(maxRSS)
-            data_collector[jobID][2] += used_cpu
+            if used_cpu != -1:
+                data_collector[jobID][2] += used_cpu
 
     for triple in data_collector.values():
         maxRSS_list.append(triple[0])
         elapsed_list.append(triple[1])
-        cpuTime_list.append(triple[2])
+        if triple[2] != -1:
+            cpuTime_list.append(triple[2])
 
 
     line = data[0].split("|")
@@ -565,14 +575,15 @@ def main(arrayID, m, t, c, v):
     print("Job ID: %s" % arrayID)
     print("Cluster: %s" % cluster)
     print("User/Group: %s/%s" % (user, group))
-    print("State: %s (exit code %s)" % (job_state, exit_code))
+    if len(job_states.keys()) == 1:               # if single job print state
+        print("State: %s (exit code %s)" % (job_state, exit_code))
     print("Cores: %s" % req_cpus)
-    print("Average CPU Utilized: %s" % int_to_time(cpuTime_sum / len(cpuTime_list)))
+    print("Average CPU Utilized: %s" % float_to_time(cpuTime_sum / len(cpuTime_list)))
     print(
         "CPU Efficiency: %0.2f%% of %s core-walltime"
-        % (100 * cpuTime_sum / elapsed_sum, int_to_time(elapsed_sum))
+        % (100 * cpuTime_sum / elapsed_sum, float_to_time(elapsed_sum))
     )
-    print("Job Wall-clock time: %s" % int_to_time(elapsed_sum))
+    print("Job Wall-clock time: %s" % float_to_time(elapsed_sum))
     print("Average Memory Utilized: %s" % mb_to_str(rss_sum / data_len))
     print(
         "Memory Efficiency: %0.2f%% of %s"
@@ -590,7 +601,6 @@ def main(arrayID, m, t, c, v):
     if not v:
         return
 
-    
     # single job handling
     if len(maxRSS_list) == 1:
         if m:
@@ -608,7 +618,7 @@ def main(arrayID, m, t, c, v):
             print("Elapsed Time: %s" % elapsed_list[0])
             print("Requested Time: %s" % req_time)
 
-            time_eff = time_to_int(elapsed_list[0]) / time_to_int(req_time) * 100
+            time_eff = time_to_float(elapsed_list[0]) / time_to_float(req_time) * 100
             print("This job used %0.2f%% of its requested time." % time_eff)
             if time_eff < 20:
                 print("Consider requesting less time to decrease waittime. ")
@@ -624,7 +634,7 @@ def main(arrayID, m, t, c, v):
             histogram(maxRSS_list, form=0, req_mem=req_mem, req_cpus=req_cpus)
             print("")
         if t:
-            histogram(list(map(time_to_int, elapsed_list)), form=1, req_time=req_time)
+            histogram(list(map(time_to_float, elapsed_list)), form=1, req_time=req_time)
             print("")
         if c:
             # buckets = "0,10,20,30,40,50,60,70,80,90,100"
@@ -648,6 +658,8 @@ if __name__ == "__main__":
         'sacct -p -j <your_id> --format=JobID,JobName,MaxRSS,Elapsed,ReqMem,ReqCPUS,Timelimit'
     To do this, use the '-i' flag: 'seff-array -i <filename.txt>'
 
+    Run with -m, -t, -c to show memory, time, and cpu stats respectively. Default when no flags give is -mtc (all).
+
     Other things can go here in the future.
     -----------------
     """
@@ -659,10 +671,10 @@ if __name__ == "__main__":
         description=textwrap.dedent(desc),
     )
     parser.add_argument("jobid")
-    parser.add_argument("-m", "--mem", action="store_true", dest="m")
-    parser.add_argument("-t", "--time", action="store_true", dest="t")
-    parser.add_argument("-c", "--cpu", action="store_true", dest="c")
-    parser.add_argument("-v", "--verbose", action="store_true", dest="v")
+    parser.add_argument("-m", "--mem", action="store_true", dest="m", help="show memory usage stats")
+    parser.add_argument("-t", "--time", action="store_true", dest="t", help="show time usage stats")
+    parser.add_argument("-c", "--cpu", action="store_true", dest="c", help="show cpu usage stats")
+    parser.add_argument("-v", "--verbose", action="store_true", dest="v", help="enable to show histograms for job arrays")
     args = parser.parse_args()
     if not (args.m or args.t or args.c):
         args.m, args.t, args.c = True, True, True
