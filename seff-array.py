@@ -390,6 +390,8 @@ def float_to_time(secs):
     mins = secs // 60
     secs %= 60
 
+    secs = "{:05.2f}".format(secs) if (secs % 1 != 0) else "{:02.0f}".format(secs)
+
     if days > 0:
         return (
             "{:02.0f}".format(days)
@@ -398,7 +400,7 @@ def float_to_time(secs):
             + ":"
             + "{:02.0f}".format(mins)
             + ":"
-            + "{:05.2f}".format(secs)
+            + secs
         )
     elif hours > 0:
         return (
@@ -406,10 +408,10 @@ def float_to_time(secs):
             + ":"
             + "{:02.0f}".format(mins)
             + ":"
-            + "{:05.2f}".format(secs)
+            + secs
         )
 
-    return "{:02.0f}".format(mins) + ":" + "{:05.2f}".format(secs)
+    return "{:02.0f}".format(mins) + ":" + secs
 
 
 # convert megabytes to mem_str with units
@@ -537,7 +539,7 @@ def main(arrayID, m, t, c, v):
 
         if jobID not in data_collector.keys():
             data_collector[jobID] = [float(maxRSS), elapsed, used_cpu]
-            elapsed_sum += elapsedTime 
+            elapsed_sum += elapsedTime
             rss_sum += float(maxRSS)
         else:
             data_collector[jobID][0] += float(maxRSS)
