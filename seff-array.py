@@ -574,6 +574,7 @@ def main(arrayID, m, t, c, v):
 
 
     # normal seff stats
+    elapsed_avg = elapsed_sum / data_len
     print("Job ID: %s" % arrayID)
     print("Cluster: %s" % cluster)
     print("User/Group: %s/%s" % (user, group))
@@ -583,9 +584,9 @@ def main(arrayID, m, t, c, v):
     print("Average CPU Utilized: %s" % float_to_time(cpuTime_sum / len(cpuTime_list)))
     print(
         "CPU Efficiency: %0.2f%% of %s core-walltime"
-        % (100 * cpuTime_sum / elapsed_sum, float_to_time(elapsed_sum))
+        % (100 * cpuTime_sum / elapsed_sum, float_to_time(elapsed_avg))
     )
-    print("Job Wall-clock time: %s" % float_to_time(elapsed_sum))
+    print("Job Wall-clock time: %s" % float_to_time(elapsed_avg))
     print("Average Memory Utilized: %s" % mb_to_str(rss_sum / data_len))
     print(
         "Memory Efficiency: %0.2f%% of %s"
