@@ -350,7 +350,7 @@ def histogram(
                 "%6.2f%% - %6.2f%% [%4d]: %s"
                 % (bucket_min, bucket_max, bucket_count, "∎" * star_count)
             )
-        if 50 >= mvsd.mean() and req_cpus > 1:
+        if 50 >= mvsd.mean() and int(req_cpus) > 1:
             print("*" * term_columns)
             print(
                 "The requested number of cores is %s."
