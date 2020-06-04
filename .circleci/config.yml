@@ -11,9 +11,12 @@ jobs:
       - python/load-cache
       - python/install-deps
       - python/save-cache
+      - run: mkdir test-reports
       - run:
           command: ./seff-array.py -h
           name: Test
+      - store_test_results:
+        path: test-reports/
 
 workflows:
   main:
