@@ -1,0 +1,49 @@
+Job ID: 57340052
+Cluster: grace
+User/Group: dh656/altonji
+State: COMPLETED (exit code 0)
+Cores: 1
+Average CPU Utilized: 00:02.75
+CPU Efficiency: 50.40% of 00:05.46 core-walltime
+Job Wall-clock time: 00:05.46
+Average Memory Utilized: 1.14MB
+Memory Efficiency: 0.01% of 20.0GB
+========================== Max Memory Usage ==========================
+# NumSamples = 39; Min = 1.43MB; Max = 2.23MB
+# Mean = 1.74MB; SD = 235.89KB; Median 1.85MB
+# each ∎ represents a count of 1
+   1.29MB -    1.43MB [   2]: ∎∎
+   1.43MB -    2.23MB [  37]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
+***********************************************************************
+The requested memory was 20.0GB.
+The average memory usage was 2.0MB.
+Requesting less memory would allow jobs to run more quickly.
+***********************************************************************
+
+============================ Elapsed Time ============================
+# NumSamples = 39; Min = 00:03; Max = 00:25
+# Mean = 00:05; SD = 00:03; Median 00:05
+# each ∎ represents a count of 2
+         00:03 -          00:03 [   1]: 
+         00:03 -          00:25 [  38]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
+***********************************************************************
+The requested runtime was 02:00:00.                 
+The average runtime was 00:05.                 
+Requesting less time would allow jobs to run more quickly.
+***********************************************************************
+
+=========================== CPU Utilization ===========================
+# NumSamples = 39; Min = 45.36%; Max = 76.23%
+# Mean = 49.08%; SD = 6.33%; Median 46.82%
+# each ∎ represents a count of 1
+ 45.36% -  48.45% [  25]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
+ 48.45% -  51.53% [   7]: ∎∎∎∎∎∎∎
+ 51.53% -  54.62% [   1]: ∎
+ 54.62% -  57.71% [   0]: 
+ 57.71% -  60.80% [   0]: 
+ 60.80% -  63.88% [   2]: ∎∎
+ 63.88% -  66.97% [   1]: ∎
+ 66.97% -  70.06% [   0]: 
+ 70.06% -  73.15% [   0]: 
+ 73.15% -  76.23% [   1]: ∎
+The requested number of CPUs is 1.

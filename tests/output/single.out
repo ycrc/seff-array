@@ -1,0 +1,21 @@
+Job ID: 57336850
+Cluster: grace
+User/Group: kk772/cao
+State: COMPLETED (exit code 0)
+Cores: 1
+Average CPU Utilized: 24:15.87
+CPU Efficiency: 99.51% of 24:23 core-walltime
+Job Wall-clock time: 24:23
+Average Memory Utilized: 1.67GB
+Memory Efficiency: 33.45% of 5.0GB
+Memory Usage: 1673.31MB
+Requested Memory: 5.0GB
+This job used 33.47% of its requested memory.
+
+Elapsed Time: 00:24:23
+Requested Time: 1-00:00:00
+This job used 1.69% of its requested time.
+Consider requesting less time to decrease waittime. 
+
+Cores Requested: 1
+CPU efficiency for this job is 99.51%.

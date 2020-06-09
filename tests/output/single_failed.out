@@ -1,0 +1,20 @@
+Job ID: 57278179
+Cluster: grace
+User/Group: hjz5/mjohnson
+State: FAILED (exit code 1)
+Cores: 16
+Average CPU Utilized: 13:04:01.06
+CPU Efficiency: 99.67% of 13:06:39 core-walltime
+Job Wall-clock time: 13:06:39
+Average Memory Utilized: 46.46GB
+Memory Efficiency: 48.40% of 96.0GB
+Memory Usage: 46464.39MB
+Requested Memory: 6.0GB
+This job used 12390.50% of its requested memory.
+
+Elapsed Time: 13:06:39
+Requested Time: 1-00:00:00
+This job used 54.63% of its requested time.
+
+Cores Requested: 16
+CPU efficiency for this job is 99.67%.
