@@ -1,2 +1,53 @@
-No info to show for job 57340029
-Current status for job: RUNNING
+Job ID: 57340029
+Cluster: grace
+User/Group: dk758/hammes_schiffer
+State: COMPLETED (exit code 0)
+Cores: 1
+Average CPU Utilized: 17:49.05
+CPU Efficiency: 98.92% of 18:00.70 core-walltime
+Job Wall-clock time: 18:00.70
+Average Memory Utilized: 106.12MB
+Memory Efficiency: 2.12% of 5.0GB
+=============================== Max Memory Usage ===============================
+# NumSamples = 200; Min = 101.11MB; Max = 115.3MB
+# Mean = 106.67MB; SD = 2.27MB; Median 106.19MB
+# each ∎ represents a count of 4
+   91.0MB -  101.11MB [   1]: 
+ 101.11MB -   115.3MB [ 199]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
+********************************************************************************
+The requested memory was 5.0GB.
+The average memory usage was 107.0MB.
+Requesting less memory would allow jobs to run more quickly.
+********************************************************************************
+
+================================= Elapsed Time =================================
+# NumSamples = 200; Min = 12:27; Max = 31:42
+# Mean = 18:01; SD = 03:11; Median 17:16
+# each ∎ represents a count of 3
+         11:12 -          12:27 [   1]: 
+         12:27 -          14:23 [   1]: 
+         14:23 -          16:18 [  36]: ∎∎∎∎∎∎∎∎∎∎∎∎
+         16:18 -          18:14 [ 116]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
+         18:14 -          20:09 [  30]: ∎∎∎∎∎∎∎∎∎∎
+         20:09 -          22:05 [   3]: ∎
+         22:05 -          24:00 [   0]: 
+         24:00 -          25:56 [   0]: 
+         25:56 -          27:51 [   1]: 
+         27:51 -          29:47 [   8]: ∎∎
+         29:47 -          31:42 [   4]: ∎
+The requested runtime was 01:00:00.
+
+=============================== CPU Utilization ===============================
+# NumSamples = 200; Min = 91.32%; Max = 99.32%
+# Mean = 98.90%; SD = 0.58%; Median 99.00%
+# each ∎ represents a count of 4
+ 91.32% -  92.32% [   0]: 
+ 92.32% -  93.32% [   0]: 
+ 93.32% -  94.32% [   0]: 
+ 94.32% -  95.32% [   0]: 
+ 95.32% -  96.32% [   0]: 
+ 96.32% -  97.32% [   0]: 
+ 97.32% -  98.32% [   3]: 
+ 98.32% -  99.32% [ 196]: ∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
+ 99.32% -  99.32% [   0]: 
+The requested number of CPUs is 1.
