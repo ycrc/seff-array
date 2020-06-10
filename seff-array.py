@@ -213,7 +213,7 @@ def histogram(
 
     # 5 so that the width of the histogram is somewhat reasonable
     if (term_columns - fixed < 5):      # if window size too small or does not exist
-        term_columns = 100 * 0.8        # set to default size of 100
+        term_columns = int(100 * 0.8)        # set to default size of 100
 
     if max(bucket_counts) > (term_columns - fixed):
         bucket_scale = int(max(bucket_counts) / (term_columns - fixed)) + 1
@@ -272,7 +272,7 @@ def histogram(
             print("The requested runtime was %s." % req_time)
 
     elif form == 0:
-        half_width = (term_columns - 18) // 2
+        half_width = int((term_columns - 18) // 2)
         print("=" * half_width + " Max Memory Usage " + "=" * half_width)
         print(
             "# NumSamples = %d; Min = %s; Max = %s"
@@ -473,7 +473,12 @@ def main(arrayID, m, t, c, v):
             "ReqMem,ReqCPUS,Timelimit,State,TotalCPU,User,Group,Cluster,ExitCode"
             % arrayID
         )
-        result = subprocess.check_output([query], shell=True)
+
+        try: 
+            result = subprocess.check_output([query], shell=True)
+        except subprocess.CalledProcessError:
+            print("Error: sacct failed to respond, please try again later.")
+            sys.exit(1)
 
     if sys.version_info[0] >= 3:
         result = str(result, "utf-8")
