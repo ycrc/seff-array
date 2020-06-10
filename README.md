@@ -28,4 +28,17 @@ Note: if your terminal window is too small (less than ~45 columns wide), then `s
 a terminal window of 100 columns wide. 
 
 Histogram bins vary according to the distribution of the data. There is a minimum bin width associated with each 
-type of histogram to avoid unnecessary precision when the data is extremely clustered. 
+type of histogram to avoid unnecessary precision when the data is extremely clustered.
+
+
+## Continuous Integration with CircleCI
+A series of simple tests will be tested with each push to this repository through CircleCI. 
+The testing environment is composed of several key components: 
+1. compare.sh    - A basic bash script that calls seff-array and compares that output with the expected output. 
+2. retrieve.py   - Used in compare.sh. Returns the expected output of a given jobid.
+3. sacct         - A mock sacct so that it returns raw sacct data (just like normal sacct does) given a jobid. 
+                   The "fail" jobid is to simulate a scenario when sacct fails to return any output. 
+4. tests/output  - Directory that contains all expected output for each test.
+5. tests/data    - Directory that contains all raw sacct data for each test.
+6. tests/log.txt - File that contains the mapping of each test to its jobid. 
+
