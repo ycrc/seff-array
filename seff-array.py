@@ -508,7 +508,7 @@ def main(arrayID, m, t, c, v):
 
     job_state = data[0].split("|")[7]
 
-    if "COMPLETED" not in job_states.keys() and "FAILED" not in job_states.keys():
+    if "COMPLETED" not in job_states.keys() and "FAILED" not in job_states.keys() and "TIMEOUT" not in job_states.keys():
         print("No info to show for job %s" % arrayID)
         print("Current status for job: %s" % job_state)
         return
