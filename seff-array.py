@@ -495,15 +495,27 @@ def main(arrayID, m, t, c, v):
         state = line.split("|")[7]
         jobID = line.split("|")[0].split(".")[0]
 
+        count = 1
+
+        if "_" in jobID:
+            numrange = jobID.split("_")[1]
+            if "-" in numrange:
+                start, end = numrange.split("-")
+
+                start = int(start[1:])
+                end = int(end[:-1])
+
+                count = end - start + 1
+
         if jobID in jobs_seen:
             continue
 
         jobs_seen.append(jobID)
 
         if state in job_states.keys():
-            job_states[state] += 1
+            job_states[state] += count
         else:
-            job_states[state] = 1
+            job_states[state] = count
 
 
     job_state = data[0].split("|")[7]
@@ -511,6 +523,7 @@ def main(arrayID, m, t, c, v):
     if "COMPLETED" not in job_states.keys() and "FAILED" not in job_states.keys() and "TIMEOUT" not in job_states.keys():
         print("No info to show for job %s" % arrayID)
         print("Current status for job: %s" % job_state)
+        print_states(job_states)
         return
 
     req_mem = data[0].split("|")[4]
