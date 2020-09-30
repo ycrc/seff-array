@@ -455,7 +455,7 @@ def print_states(d):
     print("-" * term_columns)
 
 
-def main(arrayID, m, t, c, v):
+def main(arrayID, m, t, c):
     data_collector = {}  # key = job_id; val = [maxRSS, elapsed, cpuTime]
     elapsed_list = []
     maxRSS_list = []
@@ -520,11 +520,11 @@ def main(arrayID, m, t, c, v):
 
     job_state = data[0].split("|")[7]
 
-    if "COMPLETED" not in job_states.keys() and "FAILED" not in job_states.keys() and "TIMEOUT" not in job_states.keys():
-        print("No info to show for job %s" % arrayID)
-        print("Current status for job: %s" % job_state)
-        print_states(job_states)
-        return
+#    if "COMPLETED" not in job_states.keys() and "FAILED" not in job_states.keys() and "TIMEOUT" not in job_states.keys():
+#        print("No info to show for job %s" % arrayID)
+#        print("Current status for job: %s" % job_state)
+#        print_states(job_states)
+#        return
 
     req_mem = data[0].split("|")[4]
     req_cpus = data[0].split("|")[5]
@@ -618,10 +618,6 @@ def main(arrayID, m, t, c, v):
     if len(job_states.keys()) > 1:
         print_states(job_states)
 
-    # if verbose flag is false, stop
-    if not v:
-        return
-
     # single job handling
     if len(maxRSS_list) == 1:
         if m:
@@ -695,9 +691,8 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--mem", action="store_true", dest="m", help="show memory usage stats")
     parser.add_argument("-t", "--time", action="store_true", dest="t", help="show time usage stats")
     parser.add_argument("-c", "--cpu", action="store_true", dest="c", help="show cpu usage stats")
-    parser.add_argument("-v", "--verbose", action="store_true", dest="v", help="enable to show histograms for job arrays")
     args = parser.parse_args()
     if not (args.m or args.t or args.c):
         args.m, args.t, args.c = True, True, True
 
-    main(args.jobid, args.m, args.t, args.c, args.v)
+    main(args.jobid, args.m, args.t, args.c)
