@@ -498,12 +498,13 @@ def main(arrayID, m, t, c):
         count = 1
 
         if "_" in jobID:
-            numrange = jobID.split("_")[1]
+            numrange = jobID.split("_")[1][1:-2]
             if "-" in numrange:
-                start, end = numrange.split("-")
-
-                start = int(start[1:])
-                end = int(end[:-1])
+                if "%" not in numrange:
+                    start, end = [int(i) for i in numrange.split("-")]
+                else:
+                    start = int(numrange.split("-")[0])
+                    end, sim = [int(i) for i in numrange.split("-")[1].split("%")]
 
                 count = end - start + 1
 
