@@ -498,7 +498,7 @@ def main(arrayID, m, t, c):
         count = 1
 
         if "_" in jobID:
-            numrange = jobID.split("_")[1][1:-2]
+            numrange = jobID.split("_")[1][1:-1]
             if "-" in numrange:
                 if "%" not in numrange:
                     start, end = [int(i) for i in numrange.split("-")]
