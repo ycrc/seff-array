@@ -426,6 +426,9 @@ def mb_to_str(num):
 
 # convert mem str to number of megabytes
 def str_to_mb(s, cores=1):
+    if s == "0B":
+        return 0
+
     unit = s[-2:]
     num = float(s[:-2])
     if "c" in unit:
