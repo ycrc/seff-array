@@ -429,14 +429,19 @@ def str_to_mb(s, cores=1):
     if s == "0B":
         return 0
 
-    unit = s[-2:]
-    num = float(s[:-2])
+    try:
+        unit = s[-2:]
+        num = float(s[:-2])
+    except (ValueError):
+        unit = s[-1:]
+        num = float(s[:-1])
+	 
     if "c" in unit:
         num *= cores
 
     unit = unit.replace("c", "B").replace("n", "B")
     
-    if unit == "GB":
+    if (unit == "GB")|(unit=="G"):
         return round(num * 1000, 2)
     elif unit == "KB":
         return round(num / 1000, 2)
