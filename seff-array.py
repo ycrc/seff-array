@@ -424,35 +424,6 @@ def mb_to_str(num):
     return str(round(num, 2)) + "MB"
 
 
-# convert mem str to number of megabytes
-def str_to_mb(s, cores=1):
-    if s == "0B":
-        return 0
-
-    try:
-        unit = s[-2:]
-        num = float(s[:-2])
-    except (ValueError):
-        unit = s[-1:]
-        num = float(s[:-1])
-	 
-    if "c" in unit:
-        num *= cores
-
-    unit = unit.replace("c", "B").replace("n", "B")
-    
-    if (unit == "GB")|(unit=="G"):
-        return round(num * 1000, 2)
-    elif unit == "KB":
-        return round(num / 1000, 2)
-    return round(num, 2)
-
-
-# convert a mem str to the right unit with
-# num part between 1 <= x < 1000
-def fix_mem_str(s, c=1):
-    return mb_to_str(str_to_mb(s, c))
-
 
 def print_states(d):
     term_columns = int(0.8 * int(subprocess.check_output(["stty", "size"]).split()[1]))
@@ -477,7 +448,7 @@ def main(arrayID, m, t, c):
         result = file.read()
     else:
         query = (
-            "sacct -n -P -j %s --format=JobID,JobName,MaxRSS,Elapsed,"
+            "sacct --units=M -n -P -j %s --format=JobID,JobName,MaxRSS,Elapsed,"
             "ReqMem,ReqCPUS,Timelimit,State,TotalCPU,User,Group,Cluster,ExitCode"
             % arrayID
         )
@@ -535,8 +506,8 @@ def main(arrayID, m, t, c):
 #        print_states(job_states)
 #        return
 
-    req_mem = data[0].split("|")[4]
-    req_cpus = data[0].split("|")[5]
+    req_mem = float(data[0].split("|")[4][0:-1])  # remove `M` unit, convert to float
+    req_cpus = int(data[0].split("|")[5]) # convert to int
     req_time = data[0].split("|")[6]
     for line in data:
         if line == "" or line == "\n":
@@ -544,7 +515,7 @@ def main(arrayID, m, t, c):
 
         line = line.split("|")
         jobID = line[0].split(".")[0]
-        maxRSS = line[2]
+        maxRSS = line[2][0:-1] # strip off `M` unit
         elapsed = line[3]
         cpuTime = line[8]
         state = line[7]
@@ -552,24 +523,23 @@ def main(arrayID, m, t, c):
         if maxRSS == "" or cpuTime == "":
             continue
 
-        maxRSS = str_to_mb(maxRSS + "B")
+        maxRSS = float(maxRSS)
         cpuTime = time_to_float(cpuTime)
         elapsedTime = time_to_float(elapsed)
-        num_req_cpus = int(req_cpus)
-        cpuTime_sum += cpuTime / num_req_cpus 
+        cpuTime_sum += cpuTime / req_cpus 
         
         used_cpu = -1
         if elapsedTime != 0:
-            used_cpu = 100 * cpuTime / (elapsedTime * num_req_cpus)
+            used_cpu = 100 * cpuTime / (elapsedTime * req_cpus)
             if used_cpu > 100:
                 used_cpu = 100
 
         if jobID not in data_collector.keys():
-            data_collector[jobID] = [float(maxRSS), elapsed, used_cpu]
+            data_collector[jobID] = [maxRSS, elapsed, used_cpu]
             elapsed_sum += elapsedTime
-            rss_sum += float(maxRSS)
+            rss_sum += maxRSS
         else:
-            data_collector[jobID][0] += float(maxRSS)
+            data_collector[jobID][0] += maxRSS
             if used_cpu != -1:
                 data_collector[jobID][2] += used_cpu
 
@@ -607,7 +577,7 @@ def main(arrayID, m, t, c):
     print("User/Group: %s/%s" % (user, group))
     if len(job_states.keys()) == 1:               # if single job print state
         print("State: %s (exit code %s)" % (job_state, exit_code))
-    print("Cores: %s" % req_cpus)
+    print("Cores: %i" % req_cpus)
     print("Average CPU Utilized: %s" % float_to_time(cpuTime_sum / len(cpuTime_list)))
     print(
         "CPU Efficiency: %0.2f%% of %s core-walltime"
@@ -618,8 +588,8 @@ def main(arrayID, m, t, c):
     print(
         "Memory Efficiency: %0.2f%% of %s"
         % (
-            100 * rss_sum / str_to_mb(req_mem, int(req_cpus)) / data_len,
-            fix_mem_str(req_mem, int(req_cpus)),
+            100 * rss_sum / (req_mem / req_cpus) / data_len,
+            (req_mem / req_cpus),
         )
     )
 
@@ -631,10 +601,9 @@ def main(arrayID, m, t, c):
     if len(maxRSS_list) == 1:
         if m:
             print("Memory Usage: %sMB" % maxRSS_list[0])
-            print("Requested Memory: %s" % fix_mem_str(req_mem))
+            print("Requested Memory: %0.2f" % req_mem)
 
-            req_mem_int = str_to_mb(req_mem)
-            mem_eff = (float(maxRSS_list[0]) / req_mem_int * int(req_cpus)) * 100
+            mem_eff = (float(maxRSS_list[0]) / req_mem * req_cpus) * 100
             print("This job used %0.2f%% of its requested memory." % mem_eff)
             if mem_eff < 20:
                 print("Consider requesting less memory to decrease waittime. ")
@@ -651,7 +620,7 @@ def main(arrayID, m, t, c):
             print("")
 
         if c:
-            print("Cores Requested: %s" % req_cpus)
+            print("Cores Requested: %i" % req_cpus)
             print("CPU efficiency for this job is %0.2f%%." % cpuTime_list[0])
             if cpuTime_list[0] < 50 and req_cpus > 1:
                 print("Consider requesting less cores to decrease waittime.")
