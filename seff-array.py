@@ -10,7 +10,7 @@ import sys
 # Histogram code (with modifications) from
 # https://github.com/Kobold/text_histogram
 
-__version__ = 0.2
+__version__ = 0.3
 debug = False
 
 
