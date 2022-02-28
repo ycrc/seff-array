@@ -589,7 +589,7 @@ def main(arrayID, m, t, c):
         "Memory Efficiency: %0.2f%% of %s"
         % (
             100 * rss_sum / (req_mem / req_cpus) / data_len,
-            (req_mem / req_cpus),
+            mb_to_str(req_mem / req_cpus),
         )
     )
 
