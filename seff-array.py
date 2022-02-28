@@ -146,7 +146,7 @@ def histogram(
         buckets = len(boundaries)
     else:
         if req_mem:
-            req_mem_int = str_to_mb(req_mem, int(req_cpus))
+            req_mem_int = (req_mem / req_cpus)
 
         buckets = buckets or 10
         if buckets <= 0:
