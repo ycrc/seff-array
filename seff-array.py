@@ -601,7 +601,7 @@ def main(arrayID, m, t, c):
     if len(maxRSS_list) == 1:
         if m:
             print("Memory Usage: %sMB" % maxRSS_list[0])
-            print("Requested Memory: %0.2f" % req_mem)
+            print("Requested Memory: %s" % mb_to_str(req_mem))
 
             mem_eff = (float(maxRSS_list[0]) / req_mem * req_cpus) * 100
             print("This job used %0.2f%% of its requested memory." % mem_eff)
