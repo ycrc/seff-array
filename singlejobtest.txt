@@ -1,5 +1,0 @@
-JobID|JobName|MaxRSS|Elapsed|ReqMem|ReqCPUS|Timelimit|
-35396088|bash||00:00:11|5Gc|10|08:00:00|
-35396088.extern|extern|940K|00:00:11|5Gc|10||
-35396088.0|bash|1104K|00:00:11|5Gc|10||
-
