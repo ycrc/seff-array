@@ -1,0 +1,12 @@
+python>=3.8
+cycler
+kiwisolver
+matplotlib
+numpy
+pandas
+Pillow
+pyparsing
+python-dateutil
+pytz
+six
+termplotlib
