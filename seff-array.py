@@ -102,8 +102,8 @@ def job_eff(job_id=0, figures=False):
     print("--------------------------------------------------------")
     
     # omit pending and running jobs
-    
-    df_long_finished = df_long[(df_long['State'] != 'PENDING') & (df_long['State'] != 'RUNNING')]
+    finished_state = ['COMPLETED', 'FAILED', 'OUT_OF_MEMORY', 'TIMEOUT', 'PREEMPTEED']
+    df_long_finished = df_long[df_long.State.isin(finished_state)]    
     
     cpu_use =  df_long_finished.TotalCPU.loc[df_long_finished.groupby('JobID')['TotalCPU'].idxmax()]
     time_use = df_long_finished.Elapsed.loc[df_long_finished.groupby('JobID')['Elapsed'].idxmax()]
@@ -113,10 +113,11 @@ def job_eff(job_id=0, figures=False):
 
     print("--------------------------------------------------------")
     print("Finished Job Statistics")
-    print(f"Average CPU Efficiency {cpu_eff.mean():.2f}%")
+    print("(excludes pending, running, and cancelled jobs)")
+    print(f"Average CPU Efficiency {cpu_eff.mean()*100:.2f}%")
     print(f"Average Memory Usage {mem_use.mean():.2f}G")
     print(f"Average Run-time {time_use.mean():.2f}s")
-    print("--------------------------------------------------------")
+    print("---------------------")
     
     if array_job & figures:
         fig = plt.figure()
@@ -153,6 +154,8 @@ def job_eff(job_id=0, figures=False):
         h, bin_edges = np.histogram(time_use/time_to_float(req_time), bins=np.linspace(0,1,num=11))
         fig.hist(h, bin_edges, orientation='horizontal')
         fig.show()
+
+    print("--------------------------------------------------------")
 
 if __name__ == "__main__":
 
