@@ -1,5 +1,4 @@
-#!/gpfs/gibbs/project/support/software/utilities/bin/python3
-# coding: utf-8
+#!/gpfs/gibbs/pi/support/software/utilities/bin/python
 
 import argparse
 import subprocess
@@ -10,7 +9,6 @@ import pandas as pd
 
 from io import StringIO
 
-import matplotlib.pyplot as plt
 import termplotlib as tpl
 
 __version__ = 0.4
@@ -54,8 +52,16 @@ def job_eff(job_id=0, figures=False):
         res = subprocess.check_output([q], shell=True)
         res = str(res, 'utf-8')
         df_long = pd.read_csv(StringIO(res), sep='|')    
-    
-    
+
+
+    # filter out pending and running jobs
+    finished_state = ['COMPLETED', 'FAILED', 'OUT_OF_MEMORY', 'TIMEOUT', 'PREEMPTEED']
+    df_long_finished = df_long[df_long.State.isin(finished_state)]    
+
+    if len(df_long_finished) == 0:
+        print(f"No jobs in {job_id} have completed.")
+        return -1
+        
     # cleaning
     df_short = df_short.fillna(0.)
     df_long  = df_long.fillna(0.)
@@ -101,9 +107,13 @@ def job_eff(job_id=0, figures=False):
         print(f"{s}: {len(df_short[df_short.State == s])}")
     print("--------------------------------------------------------")
     
-    # omit pending and running jobs
+    # filter out pending and running jobs
     finished_state = ['COMPLETED', 'FAILED', 'OUT_OF_MEMORY', 'TIMEOUT', 'PREEMPTEED']
     df_long_finished = df_long[df_long.State.isin(finished_state)]    
+
+    if len(df_long_finished) == 0:
+        print(f"No jobs in {job_id} have completed.")
+        return -1
     
     cpu_use =  df_long_finished.TotalCPU.loc[df_long_finished.groupby('JobID')['TotalCPU'].idxmax()]
     time_use = df_long_finished.Elapsed.loc[df_long_finished.groupby('JobID')['Elapsed'].idxmax()]
@@ -119,24 +129,7 @@ def job_eff(job_id=0, figures=False):
     print(f"Average Run-time {time_use.mean():.2f}s")
     print("---------------------")
     
-    if array_job & figures:
-        fig = plt.figure()
-        plt.hist(cpu_eff, bins=20, label=f'{job_id}')
-        plt.legend()
-        plt.xlabel('CPU Efficiency')
-        plt.ylabel('Counts')
-
-
-        fig = plt.figure()
-        plt.hist(mem_use, bins=20, label=f'{job_id}')
-        plt.xlabel('Memory Usage (G)')
-        plt.ylabel('Counts')
-
-        fig = plt.figure()
-        plt.hist(time_use, bins=20, label=f'{job_id}')
-        plt.xlabel('Time Usage (s)')
-        plt.ylabel('Counts')
-    elif array_job:
+    if array_job:
         print('\nCPU Efficiency (%)\n---------------------')
         fig = tpl.figure()
         h, bin_edges = np.histogram(cpu_eff, bins=np.linspace(0,1,num=11))
