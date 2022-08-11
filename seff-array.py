@@ -132,19 +132,19 @@ def job_eff(job_id=0, figures=False):
     if array_job:
         print('\nCPU Efficiency (%)\n---------------------')
         fig = tpl.figure()
-        h, bin_edges = np.histogram(cpu_eff, bins=np.linspace(0,1,num=11))
+        h, bin_edges = np.histogram(cpu_eff*100, bins=np.linspace(0,100,num=11))
         fig.hist(h, bin_edges, orientation='horizontal')
         fig.show()
         
         print('\nMemory Efficiency (%)\n---------------------')
         fig = tpl.figure()
-        h, bin_edges = np.histogram(mem_use/float(req_mem[0:-1]), bins=np.linspace(0,1,num=11))
+        h, bin_edges = np.histogram(mem_use*100/float(req_mem[0:-1]), bins=np.linspace(0,100,num=11))
         fig.hist(h, bin_edges, orientation='horizontal')
         fig.show()
         
         print('\nTime Efficiency (%)\n---------------------')
         fig = tpl.figure()
-        h, bin_edges = np.histogram(time_use/time_to_float(req_time), bins=np.linspace(0,1,num=11))
+        h, bin_edges = np.histogram(time_use*100/time_to_float(req_time), bins=np.linspace(0,100,num=11))
         fig.hist(h, bin_edges, orientation='horizontal')
         fig.show()
 
