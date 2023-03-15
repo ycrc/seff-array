@@ -37,27 +37,34 @@ def time_to_float(time):
 
 #@profile
 def job_eff(job_id=0, cluster=os.getenv('SLURM_CLUSTER_NAME')):
-    
+
     if job_id==0:
         df_short = pd.read_csv('seff_test_oneline.csv', sep='|')
         df_long = pd.read_csv('seff_test.csv', sep='|')
     else:
         fmt = '--format=JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster'
-        q = f'sacct -X --units=G -P {fmt} -j {job_id} --cluster {cluster}'
+        if cluster != None:
+            q = f'sacct -X --units=G -P {fmt} -j {job_id} --cluster {cluster}'
+        else:
+            q = f'sacct -X --units=G -P {fmt} -j {job_id}'
         res = subprocess.check_output([q], shell=True)
         res = str(res, 'utf-8')
         df_short = pd.read_csv(StringIO(res), sep='|')
-        
+
         fmt = '--format=JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster,MaxVMSize'
-        q = f'sacct --units=G -P {fmt} -j {job_id} --cluster {cluster}'
+        if cluster != None:
+            q = f'sacct --units=G -P {fmt} -j {job_id} --cluster {cluster}'
+        else:
+            q = f'sacct --units=G -P {fmt} -j {job_id}'
         res = subprocess.check_output([q], shell=True)
         res = str(res, 'utf-8')
-        df_long = pd.read_csv(StringIO(res), sep='|')    
+        df_long = pd.read_csv(StringIO(res), sep='|')
+        print(df_long)
 
 
     # filter out pending and running jobs
     finished_state = ['COMPLETED', 'FAILED', 'OUT_OF_MEMORY', 'TIMEOUT', 'PREEMPTEED']
-    df_long_finished = df_long[df_long.State.isin(finished_state)]    
+    df_long_finished = df_long[df_long.State.isin(finished_state)]
 
     if len(df_long_finished) == 0:
         print(f"No jobs in {job_id} have completed.")
