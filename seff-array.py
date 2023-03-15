@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from io import StringIO
+import os
 
 import termplotlib as tpl
 
@@ -35,20 +36,20 @@ def time_to_float(time):
     return days + hours + mins + secs
 
 #@profile
-def job_eff(job_id=0, figures=False):
+def job_eff(job_id=0, cluster=os.getenv('SLURM_CLUSTER_NAME')):
     
     if job_id==0:
         df_short = pd.read_csv('seff_test_oneline.csv', sep='|')
         df_long = pd.read_csv('seff_test.csv', sep='|')
     else:
         fmt = '--format=JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster'
-        q = f'sacct -X --units=G -P {fmt} -j {job_id}'
+        q = f'sacct -X --units=G -P {fmt} -j {job_id} --cluster {cluster}'
         res = subprocess.check_output([q], shell=True)
         res = str(res, 'utf-8')
         df_short = pd.read_csv(StringIO(res), sep='|')
         
-        fmt = '--format=JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster,MaxRSS'
-        q = f'sacct --units=G -P {fmt} -j {job_id}'
+        fmt = '--format=JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster,MaxVMSize'
+        q = f'sacct --units=G -P {fmt} -j {job_id} --cluster {cluster}'
         res = subprocess.check_output([q], shell=True)
         res = str(res, 'utf-8')
         df_long = pd.read_csv(StringIO(res), sep='|')    
@@ -67,7 +68,7 @@ def job_eff(job_id=0, figures=False):
     df_long  = df_long.fillna(0.)
 
     df_long['JobID'] = df_long.JobID.map(lambda x: x.split('.')[0])
-    df_long['MaxRSS'] = df_long.MaxRSS.str.replace('G', '').astype('float')
+    df_long['MaxVMSize'] = df_long.MaxVMSize.str.replace('G', '').astype('float')
     df_long['ReqMem'] = df_long.ReqMem.str.replace('G', '').astype('float')
     df_long['TotalCPU'] = df_long.TotalCPU.map(lambda x: time_to_float(x))
     df_long['Elapsed'] = df_long.Elapsed.map(lambda x: time_to_float(x))
@@ -117,8 +118,7 @@ def job_eff(job_id=0, figures=False):
     
     cpu_use =  df_long_finished.TotalCPU.loc[df_long_finished.groupby('JobID')['TotalCPU'].idxmax()]
     time_use = df_long_finished.Elapsed.loc[df_long_finished.groupby('JobID')['Elapsed'].idxmax()]
-    mem_use =  df_long_finished.MaxRSS.loc[df_long_finished.groupby('JobID')['MaxRSS'].idxmax()]
-    
+    mem_use =  df_long_finished.MaxVMSize.loc[df_long_finished.groupby('JobID')['MaxVMSize'].idxmax()]
     cpu_eff = np.divide(np.divide(cpu_use.to_numpy(), time_use.to_numpy()),cores)
 
     print("--------------------------------------------------------")
@@ -172,6 +172,7 @@ if __name__ == "__main__":
         description=desc,
     )
     parser.add_argument("jobid")
+    parser.add_argument("-c", "--cluster", action="store", dest="cluster")
 #    parser.add_argument("-f", "--figures", action="store_true", dest=figures, help="display figures of histograms")
     #parser.add_argument("-m", "--mem", action="store_true", dest="m", help="show memory usage stats")
     #parser.add_argument("-t", "--time", action="store_true", dest="t", help="show time usage stats")
@@ -180,4 +181,4 @@ if __name__ == "__main__":
     #if not (args.m or args.t or args.c):
     #    args.m, args.t, args.c = True, True, True
 
-    job_eff(args.jobid)
+    job_eff(args.jobid, args.cluster)
