@@ -179,12 +179,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("jobid")
     parser.add_argument("-c", "--cluster", action="store", dest="cluster")
-#    parser.add_argument("-f", "--figures", action="store_true", dest=figures, help="display figures of histograms")
-    #parser.add_argument("-m", "--mem", action="store_true", dest="m", help="show memory usage stats")
-    #parser.add_argument("-t", "--time", action="store_true", dest="t", help="show time usage stats")
-    #parser.add_argument("-c", "--cpu", action="store_true", dest="c", help="show cpu usage stats")
+    parser.add_argument('--version', action='version',  version='%(prog)s {version}'.format(version=__version__))
     args = parser.parse_args()
-    #if not (args.m or args.t or args.c):
-    #    args.m, args.t, args.c = True, True, True
 
     job_eff(args.jobid, args.cluster)
