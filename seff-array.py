@@ -59,7 +59,6 @@ def job_eff(job_id=0, cluster=os.getenv('SLURM_CLUSTER_NAME')):
         res = subprocess.check_output([q], shell=True)
         res = str(res, 'utf-8')
         df_long = pd.read_csv(StringIO(res), sep='|')
-        print(df_long)
 
 
     # filter out pending and running jobs
