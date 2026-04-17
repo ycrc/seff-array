@@ -116,7 +116,7 @@ def make_histogram_table(values, title, unit="%", bins=10, vmin=0, vmax=100):
     table.add_column("Distribution", style="green", min_width=bar_width + 2)
 
     for i, count in enumerate(h):
-        range_str = f"{bin_edges[i]:.0f}\u2013{bin_edges[i+1]:.0f}"
+        range_str = f"{bin_edges[i]:.0f}\u2013{bin_edges[i + 1]:.0f}"
         bar = "\u2588" * int(count / max_count * bar_width)
         table.add_row(range_str, str(count), bar)
 
@@ -126,11 +126,15 @@ def make_histogram_table(values, title, unit="%", bins=10, vmin=0, vmax=100):
 def run_sacct(fmt, job_id, cluster_flag, aggregate):
     """`aggregate=True` adds -X (one row per job, not per step)."""
     aggregate_flag = "-X" if aggregate else ""
-    cmd = f"sacct {aggregate_flag} --units=G -P --format={fmt} -j {job_id} {cluster_flag}"
+    cmd = (
+        f"sacct {aggregate_flag} --units=G -P --format={fmt} -j {job_id} {cluster_flag}"
+    )
     try:
         result = subprocess.check_output(cmd, shell=True, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        console.print(f"[bold red]Error running sacct:[/bold red] {e.stderr.decode().strip()}")
+        console.print(
+            f"[bold red]Error running sacct:[/bold red] {e.stderr.decode().strip()}"
+        )
         sys.exit(1)
     return pd.read_csv(StringIO(result.decode("utf-8")), sep="|")
 
@@ -161,18 +165,14 @@ def job_eff(job_id, cluster=None):
     df_long["JobID"] = df_long["JobID"].astype(str).str.split(".").str[0]
 
     # Parse memory (sacct appends "G" when --units=G is used)
-    df_long["MaxRSS"] = (
-        pd.to_numeric(
-            df_long["MaxRSS"].astype(str).str.replace("G", "", regex=False),
-            errors="coerce",
-        ).fillna(0.0)
-    )
-    df_long["ReqMem"] = (
-        pd.to_numeric(
-            df_long["ReqMem"].astype(str).str.replace("G", "", regex=False),
-            errors="coerce",
-        ).fillna(0.0)
-    )
+    df_long["MaxRSS"] = pd.to_numeric(
+        df_long["MaxRSS"].astype(str).str.replace("G", "", regex=False),
+        errors="coerce",
+    ).fillna(0.0)
+    df_long["ReqMem"] = pd.to_numeric(
+        df_long["ReqMem"].astype(str).str.replace("G", "", regex=False),
+        errors="coerce",
+    ).fillna(0.0)
 
     df_long["TotalCPU"] = df_long["TotalCPU"].map(time_to_float)
     df_long["Elapsed"] = df_long["Elapsed"].map(time_to_float)
@@ -190,7 +190,7 @@ def job_eff(job_id, cluster=None):
     group = first["Group"]
     nodes = first["NNodes"]
     cores = first["ReqCPUS"]
-    req_mem_raw = str(first["ReqMem"])   # e.g. "4G"
+    req_mem_raw = str(first["ReqMem"])  # e.g. "4G"
     req_time_raw = str(first["Timelimit"])  # e.g. "01:00:00"
 
     # --- Job info ---
@@ -233,7 +233,11 @@ def job_eff(job_id, cluster=None):
     mem_use = df_finished.groupby("JobID")["MaxRSS"].max()
 
     req_time_secs = time_to_float(req_time_raw)
-    req_mem_gb = float(req_mem_raw.replace("G", "")) if req_mem_raw.replace("G", "").replace(".", "").isdigit() else 0.0
+    req_mem_gb = (
+        float(req_mem_raw.replace("G", ""))
+        if req_mem_raw.replace("G", "").replace(".", "").isdigit()
+        else 0.0
+    )
 
     cpu_arr = cpu_use.to_numpy()
     time_arr = time_use.to_numpy()
@@ -262,7 +266,12 @@ def job_eff(job_id, cluster=None):
     has_gpu_data = len(gpu_counts) > 0
 
     # --- Statistics ---
-    console.print(Rule("[bold]Finished Job Statistics[/bold] [dim](excludes pending, running, and cancelled)[/dim]", style="blue"))
+    console.print(
+        Rule(
+            "[bold]Finished Job Statistics[/bold] [dim](excludes pending, running, and cancelled)[/dim]",
+            style="blue",
+        )
+    )
     stats_table = Table(box=None, show_header=False, padding=(0, 1))
     stats_table.add_column(style="bold cyan", justify="right")
     stats_table.add_column(style="white")
