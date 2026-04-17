@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from rich import box
 from rich.console import Console
-from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 
 from seff_array import __version__
@@ -193,7 +193,8 @@ def job_eff(job_id, cluster=None):
     req_mem_raw = str(first["ReqMem"])   # e.g. "4G"
     req_time_raw = str(first["Timelimit"])  # e.g. "01:00:00"
 
-    # --- Job info panel ---
+    # --- Job info ---
+    console.print(Rule("[bold]Job Information[/bold]", style="blue"))
     info_table = Table(box=None, show_header=False, padding=(0, 1))
     info_table.add_column(style="bold cyan", justify="right")
     info_table.add_column(style="white")
@@ -204,9 +205,10 @@ def job_eff(job_id, cluster=None):
     info_table.add_row("Requested CPUs:", f"{cores} core(s) on {nodes} node(s)")
     info_table.add_row("Requested Memory:", req_mem_raw)
     info_table.add_row("Requested Time:", req_time_raw)
-    console.print(Panel(info_table, title="[bold]Job Information[/bold]", border_style="blue"))
+    console.print(info_table)
 
-    # --- Job status panel ---
+    # --- Job status ---
+    console.print(Rule("[bold]Job Status[/bold]", style="blue"))
     status_table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
     status_table.add_column("State", style="bold")
     status_table.add_column("Count", style="yellow", justify="right")
@@ -220,7 +222,7 @@ def job_eff(job_id, cluster=None):
         else:
             color = "yellow"
         status_table.add_row(f"[{color}]{state}[/{color}]", str(count))
-    console.print(Panel(status_table, title="[bold]Job Status[/bold]", border_style="blue"))
+    console.print(status_table)
 
     # --- Efficiency statistics for finished jobs ---
     mask = df_long["State"].apply(is_finished)
@@ -259,7 +261,8 @@ def job_eff(job_id, cluster=None):
 
     has_gpu_data = len(gpu_counts) > 0
 
-    # --- Statistics panel ---
+    # --- Statistics ---
+    console.print(Rule("[bold]Finished Job Statistics[/bold] [dim](excludes pending, running, and cancelled)[/dim]", style="blue"))
     stats_table = Table(box=None, show_header=False, padding=(0, 1))
     stats_table.add_column(style="bold cyan", justify="right")
     stats_table.add_column(style="white")
@@ -270,14 +273,7 @@ def job_eff(job_id, cluster=None):
     if has_gpu_data:
         stats_table.add_row("Avg Requested GPUs:", f"{np.mean(gpu_counts):.1f}")
         stats_table.add_row("Avg GPU Efficiency:", f"{np.mean(gpu_utils):.1f}%")
-    console.print(
-        Panel(
-            stats_table,
-            title="[bold]Finished Job Statistics[/bold]",
-            subtitle="excludes pending, running, and cancelled jobs",
-            border_style="blue",
-        )
-    )
+    console.print(stats_table)
 
     # Histograms are only meaningful for array jobs with multiple tasks
     if is_array_job:
@@ -292,10 +288,21 @@ def main():
     parser = argparse.ArgumentParser(
         prog="seff-array",
         description=(
-            "seff-array — job efficiency report for Slurm jobs and job arrays.\n\n"
-            "For job arrays, histograms of CPU, memory, and time efficiency are shown.\n"
-            "For single jobs, a summary similar to seff is produced."
-        ),
+            "seff-array v{ver} — job efficiency report for Slurm jobs and job arrays.\n"
+            "https://github.com/ycrc/seff-array\n"
+            "\n"
+            "Queries sacct and reports CPU, memory, and wall-time efficiency.\n"
+            "For job arrays, per-task histograms are shown for each metric.\n"
+            "For single jobs, a summary similar to `seff` is produced.\n"
+            "\n"
+            "If Princeton jobstats data is present in the AdminComment field,\n"
+            "GPU utilization statistics and a histogram are also displayed.\n"
+            "\n"
+            "Examples:\n"
+            "  seff-array 12345678          # single job or array\n"
+            "  seff-array 12345678_42        # specific array task\n"
+            "  seff-array 12345678 -c grace  # specify cluster explicitly\n"
+        ).format(ver=__version__),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("jobid", help="Slurm job ID or array ID")
@@ -304,7 +311,11 @@ def main():
         "--cluster",
         dest="cluster",
         default=None,
-        help="Slurm cluster name (overrides SLURM_CLUSTER_NAME env var)",
+        metavar="NAME",
+        help=(
+            "Slurm cluster name to pass to sacct. "
+            "Defaults to the SLURM_CLUSTER_NAME environment variable if set."
+        ),
     )
     parser.add_argument(
         "--version",
