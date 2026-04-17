@@ -25,5 +25,14 @@ seff-array = "seff_array.cli:main"
 Homepage = "https://github.com/ycrc/seff-array"
 "Bug Tracker" = "https://github.com/ycrc/seff-array/issues"
 
+[project.optional-dependencies]
+dev = ["ruff"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
