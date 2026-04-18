@@ -204,14 +204,14 @@ def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> di
         "cpu": (
             f"max_over_time("
             f"cgroup_cpu_total_seconds{{"
-            f"cluster='{cluster}',jobid=~'{id_regex}',step='',task=''"
+            f"cluster='{cluster}',jobid=~'{id_regex}'"
             f"}}[{lookback}s]) by (jobid)"
         ),
         # max_over_time on RSS gives peak memory usage
         "mem": (
             f"max_over_time("
             f"cgroup_memory_rss_bytes{{"
-            f"cluster='{cluster}',jobid=~'{id_regex}',step='',task=''"
+            f"cluster='{cluster}',jobid=~'{id_regex}'"
             f"}}[{lookback}s]) by (jobid)"
         ),
         # Which job ID owned each GPU during the window
