@@ -217,31 +217,33 @@ def query_prometheus(
         )
 
     queries = {
-        # max_over_time on a cumulative counter gives the final value
+        # Sum CPU seconds across nodes for multi-node jobs
         "cpu": (
+            f"sum by (jobid) ("
             f"max_over_time("
             f"cgroup_cpu_total_seconds{{"
             f"cluster='{cluster}',jobid=~'{id_regex}'"
-            f"}}[{lookback}s]) by (jobid)"
+            f"}}[{lookback}s]))"
         ),
-        # max_over_time on RSS gives peak memory usage
+        # Peak RSS across nodes
         "mem": (
+            f"max by (jobid) ("
             f"max_over_time("
             f"cgroup_memory_rss_bytes{{"
             f"cluster='{cluster}',jobid=~'{id_regex}'"
-            f"}}[{lookback}s]) by (jobid)"
+            f"}}[{lookback}s]))"
         ),
         # Which job ID owned each GPU during the window
         "gpu_alloc": (
+            f"max by (instance, minor_number) ("
             f"max_over_time("
-            f"nvidia_gpu_jobId{{cluster='{cluster}'}}[{lookback}s]"
-            f") by (instance, minor_number)"
+            f"nvidia_gpu_jobId{{cluster='{cluster}'}}[{lookback}s]))"
         ),
         # Average GPU utilization per device during the window
         "gpu_util": (
+            f"avg by (instance, minor_number) ("
             f"avg_over_time("
-            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s:60s]"
-            f") by (instance, minor_number)"
+            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s:60s]))"
         ),
     }
 
