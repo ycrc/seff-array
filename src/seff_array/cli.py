@@ -249,11 +249,11 @@ def query_prometheus(
             f"nvidia_gpu_jobId{{cluster='{cluster}'}}",
             gpu_query_time,
         ),
-        # Average GPU utilization per device; also centred on the midpoint
+        # Average GPU utilization using native 30s samples (no subquery downsampling)
         "gpu_util": (
             f"avg by (instance, minor_number) ("
             f"avg_over_time("
-            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s:60s]))",
+            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s]))",
             gpu_query_time,
         ),
     }
