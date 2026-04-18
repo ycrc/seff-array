@@ -254,15 +254,24 @@ def query_prometheus(
         ).encode()
         req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read()
-            parsed = json.loads(body)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read()
+        except urllib.error.HTTPError as e:
+            # Read the error body so Prometheus's message is visible
+            err_body = e.read().decode(errors="replace")
             if debug:
-                n = len(parsed.get("data", {}).get("result", []))
-                console.print(f"[yellow]  → {n} result(s)[/yellow]")
-                if n > 0:
-                    console.print(json.dumps(parsed["data"]["result"][:3], indent=2))
-            return key, parsed
+                console.print(
+                    f"[bold red]  → HTTP {e.code} on '{key}':[/bold red] {err_body}"
+                )
+            return key, {}
+        parsed = json.loads(body)
+        if debug:
+            n = len(parsed.get("data", {}).get("result", []))
+            console.print(f"[yellow]  → {n} result(s)[/yellow]")
+            if n > 0:
+                console.print(json.dumps(parsed["data"]["result"][:3], indent=2))
+        return key, parsed
 
     try:
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -275,7 +284,7 @@ def query_prometheus(
                 raw_results[key] = data
     except Exception as e:
         if debug:
-            console.print(f"[bold red]Prometheus request failed:[/bold red] {e}")
+            console.print(f"[bold red]Prometheus connection failed:[/bold red] {e}")
         return {}
 
     output: dict = {}
