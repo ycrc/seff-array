@@ -465,11 +465,21 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
         df_short = future_short.result()
         df_long = future_long.result()
 
-    # Check that at least one job has finished before doing any work
     fin = finished_mask(df_long["State"])
+    has_running = (df_short["State"] == "RUNNING").any()
+
     if not fin.any():
-        console.print(f"[yellow]No finished jobs found for {job_id}.[/yellow]")
-        return
+        if not has_running:
+            console.print(
+                f"[yellow]No finished or running jobs found for {job_id}.[/yellow]"
+            )
+            return
+        if not prom_url:
+            console.print(
+                f"[yellow]No finished jobs found for {job_id}. "
+                f"Pass --prometheus to show metrics for running jobs.[/yellow]"
+            )
+            return
 
     # --- Data cleaning ---
     df_short = df_short.fillna(0.0)
