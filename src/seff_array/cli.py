@@ -198,6 +198,11 @@ def query_prometheus(
         # Window too small to be meaningful
         return {}
 
+    # For GPU, query at the midpoint of the job window rather than the end.
+    # nvidia_gpu_jobId is a gauge that shows the current allocation — querying
+    # at max(end) sees GPUs that may already be reassigned to newer jobs.
+    gpu_query_time = int((min(starts) + max(ends)) / 2)
+
     id_regex = "|".join(raw_ids)
     url = f"{prom_url.rstrip('/')}/api/v1/query"
 
@@ -208,6 +213,7 @@ def query_prometheus(
         console.print(f"[yellow]URL:[/yellow] {url}")
         console.print(
             f"[yellow]query_time:[/yellow] {query_time}  "
+            f"[yellow]gpu_query_time:[/yellow] {gpu_query_time}  "
             f"[yellow]lookback:[/yellow] {lookback}s"
         )
         ids_preview = sorted(raw_ids)[:10]
@@ -216,6 +222,7 @@ def query_prometheus(
             f"[yellow]raw_ids ({len(raw_ids)}):[/yellow] {ids_preview}{suffix}"
         )
 
+    # Each entry: (query_string, unix_timestamp_for_query)
     queries = {
         # Sum CPU seconds across nodes for multi-node jobs
         "cpu": (
@@ -223,7 +230,8 @@ def query_prometheus(
             f"max_over_time("
             f"cgroup_cpu_total_seconds{{"
             f"cluster='{cluster}',jobid=~'{id_regex}'"
-            f"}}[{lookback}s]))"
+            f"}}[{lookback}s]))",
+            query_time,
         ),
         # Peak RSS across nodes
         "mem": (
@@ -231,29 +239,32 @@ def query_prometheus(
             f"max_over_time("
             f"cgroup_memory_rss_bytes{{"
             f"cluster='{cluster}',jobid=~'{id_regex}'"
-            f"}}[{lookback}s]))"
+            f"}}[{lookback}s]))",
+            query_time,
         ),
-        # Which job ID owned each GPU during the window
+        # Instant snapshot of GPU→job allocation at the midpoint of the window.
+        # max_over_time would return the highest (most recent) job ID per GPU,
+        # which is wrong once GPUs are reassigned to newer jobs.
         "gpu_alloc": (
-            f"max by (instance, minor_number) ("
-            f"max_over_time("
-            f"nvidia_gpu_jobId{{cluster='{cluster}'}}[{lookback}s]))"
+            f"nvidia_gpu_jobId{{cluster='{cluster}'}}",
+            gpu_query_time,
         ),
-        # Average GPU utilization per device during the window
+        # Average GPU utilization per device; also centred on the midpoint
         "gpu_util": (
             f"avg by (instance, minor_number) ("
             f"avg_over_time("
-            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s:60s]))"
+            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s:60s]))",
+            gpu_query_time,
         ),
     }
 
-    def post_query(key_query):
-        key, query = key_query
+    def post_query(item):
+        key, query, qt = item
         if debug:
-            console.print(f"\n[yellow]--- query: {key} ---[/yellow]\n{query}")
-        data = urllib.parse.urlencode(
-            {"query": query, "time": str(query_time)}
-        ).encode()
+            console.print(
+                f"\n[yellow]--- query: {key} (time={qt}) ---[/yellow]\n{query}"
+            )
+        data = urllib.parse.urlencode({"query": query, "time": str(qt)}).encode()
         req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
@@ -277,9 +288,9 @@ def query_prometheus(
 
     try:
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {
-                pool.submit(post_query, item): item[0] for item in queries.items()
-            }
+            # Pass (key, query, time) tuples to post_query
+            items = [(k, q, t) for k, (q, t) in queries.items()]
+            futures = {pool.submit(post_query, item): item[0] for item in items}
             raw_results = {}
             for future in as_completed(futures):
                 key, data = future.result()
@@ -482,12 +493,17 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
             entry = prom_data[raw_id]
             cpu_list.append(entry.get("cpu_seconds", float(sacct_cpu.get(jid, 0.0))))
             mem_list.append(entry.get("rss_gb", float(sacct_mem.get(jid, 0.0))))
-            if "gpu_util" in entry:
-                gpu_utils.append(entry["gpu_util"])
-                gpu_counts_list.append(entry.get("gpu_count", 1))
         else:
             cpu_list.append(float(sacct_cpu.get(jid, 0.0)))
             mem_list.append(float(sacct_mem.get(jid, 0.0)))
+
+        # GPU: try Prometheus first, then AdminComment (jobstats), regardless
+        # of whether Prometheus had cpu/mem data for this job.
+        if raw_id in prom_data and "gpu_util" in prom_data[raw_id]:
+            entry = prom_data[raw_id]
+            gpu_utils.append(entry["gpu_util"])
+            gpu_counts_list.append(entry.get("gpu_count", 1))
+        else:
             # AdminComment GPU fallback (Princeton jobstats store_jobstats)
             js = get_stats_dict(ac_map.get(jid_str, ""))
             if js:
@@ -504,6 +520,8 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
         cpu_eff = np.where(time_arr > 0, cpu_arr / (time_arr * n_cores), 0.0)
         mem_eff = np.where(req_mem_gb > 0, mem_arr / req_mem_gb, 0.0)
         time_eff = np.where(req_time_secs > 0, time_arr / req_time_secs, 0.0)
+    # TIMEOUT jobs run slightly over the limit; clamp so they appear at 100%
+    time_eff = np.minimum(time_eff, 1.0)
 
     has_gpu_data = len(gpu_utils) > 0
 
