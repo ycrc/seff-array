@@ -587,8 +587,15 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     gpu_counts_list: list = []
     gpu_states_list: list = []
 
+    # Running jobs are handled separately below; skip them here to avoid
+    # double-counting when a job's .batch step appears as COMPLETED in the
+    # step-level sacct output while the main job is still RUNNING.
+    run_job_ids = {str(row["JobID"]) for _, row in run_short.iterrows()}
+
     for jid in sacct_cpu.index:
         jid_str = str(jid)
+        if jid_str in run_job_ids:
+            continue
         raw_id = id_map.get(jid_str, "")
         task_state = str(state_map.get(jid_str, "UNKNOWN"))
         # Normalise "CANCELLED by <uid>" → "CANCELLED" for consistent coloring
