@@ -23,6 +23,16 @@ from rich.console import Console
 from rich.table import Table
 
 from seff_array import __version__
+from seff_array.config import (
+    CPU_METRIC,
+    GPU_JOBID_METRIC,
+    GPU_UTIL_METRIC,
+    LABEL_CLUSTER,
+    LABEL_INSTANCE,
+    LABEL_JOBID,
+    LABEL_MINOR,
+    MEM_METRIC,
+)
 
 console = Console()
 
@@ -301,10 +311,10 @@ def query_prometheus(
             instant_url,
             {
                 "query": (
-                    f"sum by (jobid) ("
+                    f"sum by ({LABEL_JOBID}) ("
                     f"max_over_time("
-                    f"cgroup_cpu_total_seconds{{"
-                    f"cluster='{cluster}',jobid=~'{id_regex}'"
+                    f"{CPU_METRIC}{{"
+                    f"{LABEL_CLUSTER}='{cluster}',{LABEL_JOBID}=~'{id_regex}'"
                     f"}}[{lookback}s]))"
                 ),
                 "time": str(query_time),
@@ -315,10 +325,10 @@ def query_prometheus(
             instant_url,
             {
                 "query": (
-                    f"max by (jobid) ("
+                    f"max by ({LABEL_JOBID}) ("
                     f"max_over_time("
-                    f"cgroup_memory_rss_bytes{{"
-                    f"cluster='{cluster}',jobid=~'{id_regex}'"
+                    f"{MEM_METRIC}{{"
+                    f"{LABEL_CLUSTER}='{cluster}',{LABEL_JOBID}=~'{id_regex}'"
                     f"}}[{lookback}s]))"
                 ),
                 "time": str(query_time),
@@ -330,7 +340,7 @@ def query_prometheus(
         "gpu_alloc": (
             range_url,
             {
-                "query": f"nvidia_gpu_jobId{{cluster='{cluster}'}}",
+                "query": f"{GPU_JOBID_METRIC}{{{LABEL_CLUSTER}='{cluster}'}}",
                 "start": str(gpu_start),
                 "end": str(gpu_end),
                 "step": str(gpu_step),
@@ -340,7 +350,7 @@ def query_prometheus(
         "gpu_util": (
             range_url,
             {
-                "query": f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}",
+                "query": f"{GPU_UTIL_METRIC}{{{LABEL_CLUSTER}='{cluster}'}}",
                 "start": str(gpu_start),
                 "end": str(gpu_end),
                 "step": str(gpu_step),
@@ -395,13 +405,13 @@ def query_prometheus(
 
     # CPU seconds per task (instant query → "value")
     for item in raw_results.get("cpu", {}).get("data", {}).get("result", []):
-        rawid = item["metric"].get("jobid", "")
+        rawid = item["metric"].get(LABEL_JOBID, "")
         if rawid in raw_ids:
             output.setdefault(rawid, {})["cpu_seconds"] = float(item["value"][1])
 
     # Peak RSS in GB per task (instant query → "value")
     for item in raw_results.get("mem", {}).get("data", {}).get("result", []):
-        rawid = item["metric"].get("jobid", "")
+        rawid = item["metric"].get(LABEL_JOBID, "")
         if rawid in raw_ids:
             output.setdefault(rawid, {})["rss_gb"] = float(item["value"][1]) / 1e9
 
@@ -410,8 +420,8 @@ def query_prometheus(
     # Build a lookup: (instance, minor_number, timestamp) → duty_cycle
     util_ts_map: dict = {}
     for series in raw_results.get("gpu_util", {}).get("data", {}).get("result", []):
-        inst = series["metric"].get("instance", "")
-        minor = series["metric"].get("minor_number", "")
+        inst = series["metric"].get(LABEL_INSTANCE, "")
+        minor = series["metric"].get(LABEL_MINOR, "")
         for ts, val in series.get("values", []):
             util_ts_map[(inst, minor, int(ts))] = float(val)
 
@@ -420,8 +430,8 @@ def query_prometheus(
     gpu_utils_by_job: dict = {}  # rawid -> [duty_cycle, ...]
     gpu_devices_by_job: dict = {}  # rawid -> set of (inst, minor) pairs
     for series in raw_results.get("gpu_alloc", {}).get("data", {}).get("result", []):
-        inst = series["metric"].get("instance", "")
-        minor = series["metric"].get("minor_number", "")
+        inst = series["metric"].get(LABEL_INSTANCE, "")
+        minor = series["metric"].get(LABEL_MINOR, "")
         for ts, val in series.get("values", []):
             rawid = str(int(float(val)))
             if rawid not in raw_ids:

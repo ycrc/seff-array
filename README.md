@@ -14,7 +14,17 @@ reporting and optional Prometheus-backed metrics.
 ## Installation
 
 ```bash
-pip install seff-array
+git clone https://github.com/ycrc/seff-array
+cd seff-array
+pip install .
+```
+
+With [uv](https://github.com/astral-sh/uv):
+
+```bash
+git clone https://github.com/ycrc/seff-array
+cd seff-array
+uv pip install .
 ```
 
 ## Usage
@@ -79,14 +89,16 @@ Jobs older than the retention period fall back to sacct automatically.
 Running jobs are included in the output when Prometheus is configured,
 showing live CPU, memory, and GPU metrics alongside finished tasks.
 
-### Clusters
+### Adapting to other sites
+
+Metric names and label keys are defined in `src/seff_array/config.py`.
+If your Prometheus uses different names, edit that file — the query logic
+in `cli.py` does not need to change.
 
 This tool has been developed and tested at the
 [Yale Center for Research Computing](https://research.computing.yale.edu)
 with a [cgroup exporter](https://github.com/treydock/cgroup_exporter) and
 the [NVIDIA GPU exporter](https://github.com/utkuozdemir/nvidia_gpu_exporter).
-The Prometheus metric names and label schema may differ at other sites —
-adjust the PromQL queries in `cli.py` if needed.
 
 ## Troubleshooting
 
