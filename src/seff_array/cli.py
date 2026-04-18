@@ -164,7 +164,9 @@ def run_sacct(fmt, job_id, cluster_flag, aggregate):
     return pd.read_csv(StringIO(result.decode("utf-8")), sep="|")
 
 
-def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> dict:
+def query_prometheus(
+    fin_short: pd.DataFrame, cluster: str, prom_url: str, debug: bool = False
+) -> dict:
     """Query Prometheus for CPU, memory, and GPU metrics for a set of finished tasks.
 
     Uses a single bulk regex query per metric so the number of HTTP requests is
@@ -199,6 +201,21 @@ def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> di
     id_regex = "|".join(raw_ids)
     url = f"{prom_url.rstrip('/')}/api/v1/query"
 
+    if debug:
+        console.print(
+            Rule("[bold yellow]Prometheus debug[/bold yellow]", style="yellow")
+        )
+        console.print(f"[yellow]URL:[/yellow] {url}")
+        console.print(
+            f"[yellow]query_time:[/yellow] {query_time}  "
+            f"[yellow]lookback:[/yellow] {lookback}s"
+        )
+        ids_preview = sorted(raw_ids)[:10]
+        suffix = "..." if len(raw_ids) > 10 else ""
+        console.print(
+            f"[yellow]raw_ids ({len(raw_ids)}):[/yellow] {ids_preview}{suffix}"
+        )
+
     queries = {
         # max_over_time on a cumulative counter gives the final value
         "cpu": (
@@ -230,13 +247,22 @@ def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> di
 
     def post_query(key_query):
         key, query = key_query
+        if debug:
+            console.print(f"\n[yellow]--- query: {key} ---[/yellow]\n{query}")
         data = urllib.parse.urlencode(
             {"query": query, "time": str(query_time)}
         ).encode()
         req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return key, json.loads(resp.read())
+            body = resp.read()
+            parsed = json.loads(body)
+            if debug:
+                n = len(parsed.get("data", {}).get("result", []))
+                console.print(f"[yellow]  → {n} result(s)[/yellow]")
+                if n > 0:
+                    console.print(json.dumps(parsed["data"]["result"][:3], indent=2))
+            return key, parsed
 
     try:
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -247,7 +273,9 @@ def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> di
             for future in as_completed(futures):
                 key, data = future.result()
                 raw_results[key] = data
-    except Exception:
+    except Exception as e:
+        if debug:
+            console.print(f"[bold red]Prometheus request failed:[/bold red] {e}")
         return {}
 
     output: dict = {}
@@ -295,7 +323,7 @@ def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> di
     return output
 
 
-def job_eff(job_id, cluster=None, prom_url=None):
+def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     # Prefer explicit argument; fall back to the Slurm env var
     if cluster is None:
         cluster = os.getenv("SLURM_CLUSTER_NAME")
@@ -415,7 +443,9 @@ def job_eff(job_id, cluster=None, prom_url=None):
     fin_short = df_short[finished_mask(df_short["State"])].copy()
     prom_data: dict = {}
     if prom_url:
-        prom_data = query_prometheus(fin_short, str(cluster_name), prom_url)
+        prom_data = query_prometheus(
+            fin_short, str(cluster_name), prom_url, debug=debug
+        )
 
     # --- Build a JobID → JobIDRaw lookup for Prometheus result joining ---
     id_map = dict(
@@ -556,13 +586,19 @@ def main():
         ),
     )
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Print raw Prometheus queries and responses for troubleshooting.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
     )
     args = parser.parse_args()
 
-    job_eff(args.jobid, args.cluster, args.prometheus)
+    job_eff(args.jobid, args.cluster, args.prometheus, debug=args.debug)
 
 
 if __name__ == "__main__":
