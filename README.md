@@ -1,20 +1,97 @@
-# seff-array 
+# seff-array
 
-An extension of the Slurm command 'seff' designed to handle job arrays and offers the option to display information in a histogram.       
+An extension of the Slurm `seff` command for job arrays, with histogram
+reporting and optional Prometheus-backed metrics.
 
-seff-array generates three types of histograms: 
+## Features
 
-    1. CPU Efficiency (utilization vs runtime)
-    1. Maximum memory usage versus the requested memory
-    2. Runtime of each job compared to the requested wall-time
+- Per-task histograms for CPU, memory, and time efficiency
+- Color-coded bars by job state (green=COMPLETED, yellow=TIMEOUT, red=FAILED, magenta=CANCELLED, blue=RUNNING)
+- GPU efficiency histograms when GPU data is available
+- Optional Prometheus backend for accurate cgroup and GPU metrics
+- Live metrics for in-progress jobs when Prometheus is configured
 
-## Usage:
+## Installation
 
-    seff-array [-h] jobid [-c cluster]
+```bash
+pip install seff-array
+```
 
-To use seff-array on the job array with ID `12345678`, simply run `seff-array 12345678`.
-For job-arrays, statistics and histograms will be produced for CPU, memory, and time efficiencies.
-For single jobs, an output similar to `seff` will be produced.
+## Usage
 
-If run on a cluster that shares a single Slurm database, you can pass the name of the alternate cluster via `-c cluster`.  
-The `SLURM_CLUSTER_NAME` env-var is checked and passed to `sacct` if present. 
+```
+seff-array [-h] [-c NAME] [--prometheus URL] [--version] jobid
+```
+
+```bash
+seff-array 12345678                   # single job or array
+seff-array 12345678_42                # specific array task
+seff-array 12345678 -c grace          # specify cluster
+seff-array 12345678 --prometheus http://prometheus:9090
+```
+
+For job arrays, per-task histograms are shown for CPU, memory, time, and
+(when available) GPU efficiency. For single jobs, a summary similar to
+`seff` is produced.
+
+If run on a cluster that shares a single Slurm database, pass the cluster
+name via `-c`. The `SLURM_CLUSTER_NAME` environment variable is used as a
+default if set.
+
+## Metrics source priority
+
+seff-array tries each source in order, using the first that returns data:
+
+| Priority | Source | Notes |
+|----------|--------|-------|
+| 1 | **Prometheus** | Accurate cgroup CPU/memory + GPU duty cycle. Requires `--prometheus`. |
+| 2 | **jobstats AdminComment** | GPU data from [Princeton jobstats](https://github.com/PrincetonUniversity/jobstats) `store_jobstats`. Used at sites that populate the Slurm `AdminComment` field. |
+| 3 | **sacct** | `TotalCPU` and `MaxRSS` from Slurm accounting. Always available but can be unreliable, especially for GPU jobs. |
+
+The statistics panel shows a **Metrics source** row when `--prometheus` is
+passed, indicating how many tasks were served from each backend.
+
+## Prometheus backend
+
+When `--prometheus` is set, seff-array queries your Prometheus server
+directly for cgroup and NVIDIA GPU metrics. This is more reliable than
+sacct, particularly for GPU jobs where sacct fields are often missing.
+
+Expected metrics:
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `cgroup_cpu_total_seconds` | `cluster`, `jobid` | Cumulative CPU time per job per node |
+| `cgroup_memory_rss_bytes` | `cluster`, `jobid` | RSS memory per job per node |
+| `nvidia_gpu_jobId` | `cluster`, `instance`, `minor_number` | Job ID currently occupying each GPU |
+| `nvidia_gpu_duty_cycle` | `cluster`, `instance`, `minor_number` | GPU utilization (%) |
+
+Set the base URL via flag or environment variable:
+
+```bash
+export SEFF_ARRAY_PROM_URL=http://monitor1.mycluster.example.com:9090
+seff-array 12345678
+```
+
+Prometheus data is retained for a configurable window (typically 2 weeks).
+Jobs older than the retention period fall back to sacct automatically.
+
+Running jobs are included in the output when Prometheus is configured,
+showing live CPU, memory, and GPU metrics alongside finished tasks.
+
+### Clusters
+
+This tool has been developed and tested at the
+[Yale Center for Research Computing](https://research.computing.yale.edu)
+with a [cgroup exporter](https://github.com/treydock/cgroup_exporter) and
+the [NVIDIA GPU exporter](https://github.com/utkuozdemir/nvidia_gpu_exporter).
+The Prometheus metric names and label schema may differ at other sites —
+adjust the PromQL queries in `cli.py` if needed.
+
+## Troubleshooting
+
+Use `--debug` to print the raw PromQL queries and Prometheus responses:
+
+```bash
+seff-array 12345678 --prometheus http://prometheus:9090 --debug
+```
