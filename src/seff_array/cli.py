@@ -528,24 +528,38 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     n_cores = float(cores) if float(cores) > 0 else 1.0
 
     # --- Prometheus query (if configured) ---
-    # Filter df_short to only finished tasks so we only query jobs
-    # with complete time windows.
     fin_short = df_short[finished_mask(df_short["State"])].copy()
+    # When Prometheus is available, include running jobs so their live
+    # cgroup metrics can be shown alongside finished tasks.
+    run_short = (
+        df_short[df_short["State"] == "RUNNING"].copy() if prom_url else pd.DataFrame()
+    )
+
     prom_data: dict = {}
     if prom_url:
+        prom_input = (
+            pd.concat([fin_short, run_short], ignore_index=True)
+            if not run_short.empty
+            else fin_short
+        )
         prom_data = query_prometheus(
-            fin_short, str(cluster_name), prom_url, debug=debug
+            prom_input, str(cluster_name), prom_url, debug=debug
         )
 
-    # --- Build a JobID → JobIDRaw lookup for Prometheus result joining ---
+    # --- Build lookups covering finished + running jobs ---
+    all_short = (
+        pd.concat([fin_short, run_short], ignore_index=True)
+        if not run_short.empty
+        else fin_short
+    )
     id_map = dict(
-        zip(fin_short["JobID"].astype(str), fin_short["JobIDRaw"].astype(str))
+        zip(all_short["JobID"].astype(str), all_short["JobIDRaw"].astype(str))
     )
     # AdminComment lookup for the jobstats GPU fallback
-    ac_map = dict(zip(fin_short["JobID"].astype(str), fin_short["AdminComment"]))
+    ac_map = dict(zip(all_short["JobID"].astype(str), all_short["AdminComment"]))
 
     # State lookup for histogram coloring
-    state_map = dict(zip(fin_short["JobID"].astype(str), fin_short["State"]))
+    state_map = dict(zip(all_short["JobID"].astype(str), all_short["State"]))
 
     # --- Build per-task efficiency arrays ---
     # Source priority: Prometheus → sacct (CPU/memory)
@@ -591,6 +605,24 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
                     gpu_counts_list.append(n)
                     gpu_states_list.append(task_state)
 
+    # --- Running jobs (Prometheus only; sacct data is unreliable mid-job) ---
+    for _, row in run_short.iterrows():
+        jid_str = str(row["JobID"])
+        raw_id = str(row["JobIDRaw"])
+        if raw_id not in prom_data:
+            continue  # no live data available — skip rather than show zeros
+        entry = prom_data[raw_id]
+        # Use elapsed time from sacct (updated by Slurm) as the time denominator
+        elapsed = time_to_float(str(row["Elapsed"])) if row["Elapsed"] != 0.0 else 0.0
+        time_list.append(elapsed)
+        state_list.append("RUNNING")
+        cpu_list.append(entry.get("cpu_seconds", 0.0))
+        mem_list.append(entry.get("rss_gb", 0.0))
+        if "gpu_util" in entry:
+            gpu_utils.append(entry["gpu_util"])
+            gpu_counts_list.append(entry.get("gpu_count", 1))
+            gpu_states_list.append("RUNNING")
+
     cpu_arr = np.array(cpu_list)
     time_arr = np.array(time_list)
     mem_arr = np.array(mem_list)
@@ -605,13 +637,18 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     has_gpu_data = len(gpu_utils) > 0
 
     # --- Statistics panel ---
-    console.print(
-        Rule(
-            "[bold]Finished Job Statistics[/bold] "
-            "[dim](excludes pending, running, and cancelled)[/dim]",
-            style="blue",
+    n_running_shown = len(run_short) if prom_url and not run_short.empty else 0
+    if n_running_shown:
+        stats_rule = (
+            "[bold]Job Statistics[/bold] "
+            "[dim](finished + running; excludes pending and cancelled)[/dim]"
         )
-    )
+    else:
+        stats_rule = (
+            "[bold]Finished Job Statistics[/bold] "
+            "[dim](excludes pending, running, and cancelled)[/dim]"
+        )
+    console.print(Rule(stats_rule, style="blue"))
     stats_table = Table(box=None, show_header=False, padding=(0, 1))
     stats_table.add_column(style="bold cyan", justify="right")
     stats_table.add_column(style="white")
@@ -624,8 +661,9 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
         stats_table.add_row("Avg GPU Efficiency:", f"{np.mean(gpu_utils):.1f}%")
     # Show which data source provided CPU/memory metrics
     if prom_url:
-        n_prom = sum(
-            1 for jid in sacct_cpu.index if id_map.get(str(jid), "") in prom_data
+        n_prom = (
+            sum(1 for jid in sacct_cpu.index if id_map.get(str(jid), "") in prom_data)
+            + n_running_shown
         )
         n_total = len(cpu_arr)
         if n_prom == n_total:
