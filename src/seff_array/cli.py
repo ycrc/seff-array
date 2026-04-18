@@ -509,14 +509,7 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     status_table.add_column("State", style="bold")
     status_table.add_column("Count", style="yellow", justify="right")
     for state, count in df_short["State"].value_counts().items():
-        if state == "COMPLETED":
-            color = "green"
-        elif state in ("FAILED", "OUT_OF_MEMORY"):
-            color = "red"
-        elif str(state).startswith("CANCELLED"):
-            color = "magenta"
-        else:
-            color = "yellow"
+        color = state_color(str(state))
         status_table.add_row(f"[{color}]{state}[/{color}]", str(count))
     console.print(status_table)
 
