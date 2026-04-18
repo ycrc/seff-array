@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seff-array"
-version = "0.4.0"
+version = "1.0.0"
 description = "An extension of Slurm's seff tool for job arrays with histogram reporting"
 readme = "README.md"
 requires-python = ">=3.8"
