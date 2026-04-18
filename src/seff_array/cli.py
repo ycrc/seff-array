@@ -5,6 +5,7 @@ import base64
 import gzip
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -19,7 +20,6 @@ import numpy as np
 import pandas as pd
 from rich import box
 from rich.console import Console
-from rich.rule import Rule
 from rich.table import Table
 
 from seff_array import __version__
@@ -31,6 +31,26 @@ FINISHED_STATES = {"COMPLETED", "FAILED", "OUT_OF_MEMORY", "TIMEOUT", "PREEMPTED
 
 # Maximum Prometheus lookback window (13 days keeps us inside typical 2-week retention)
 MAX_PROM_LOOKBACK = 13 * 86400
+
+# Width of printed section rules (independent of terminal width)
+RULE_WIDTH = 80
+
+
+def print_rule(title="", style="blue"):
+    """Print a fixed-width horizontal rule with an optional centred title.
+
+    Using a fixed width keeps output readable when pasted into emails,
+    tickets, or wide terminals.
+    """
+    # Strip Rich markup tags to get the visible title length for centering
+    visible = re.sub(r"\[/?[^\]]*\]", "", title)
+    if visible:
+        side = max(1, (RULE_WIDTH - len(visible) - 2) // 2)
+        left = "─" * side
+        right = "─" * max(1, RULE_WIDTH - len(visible) - 2 - side)
+        console.print(f"[{style}]{left}[/{style}] {title} [{style}]{right}[/{style}]")
+    else:
+        console.print(f"[{style}]{'─' * RULE_WIDTH}[/{style}]")
 
 
 def time_to_float(time_str):
@@ -259,9 +279,7 @@ def query_prometheus(
     range_url = f"{prom_url.rstrip('/')}/api/v1/query_range"
 
     if debug:
-        console.print(
-            Rule("[bold yellow]Prometheus debug[/bold yellow]", style="yellow")
-        )
+        print_rule("[bold yellow]Prometheus debug[/bold yellow]", style="yellow")
         console.print(f"[yellow]instant URL:[/yellow] {instant_url}")
         console.print(f"[yellow]range URL:[/yellow]   {range_url}")
         console.print(
@@ -490,7 +508,7 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     req_time_raw = str(first["Timelimit"])  # e.g. "01:00:00"
 
     # --- Job info ---
-    console.print(Rule("[bold]Job Information[/bold]", style="blue"))
+    print_rule("[bold]Job Information[/bold]")
     info_table = Table(box=None, show_header=False, padding=(0, 1))
     info_table.add_column(style="bold cyan", justify="right")
     info_table.add_column(style="white")
@@ -504,7 +522,7 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     console.print(info_table)
 
     # --- Job status ---
-    console.print(Rule("[bold]Job Status[/bold]", style="blue"))
+    print_rule("[bold]Job Status[/bold]")
     status_table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
     status_table.add_column("State", style="bold")
     status_table.add_column("Count", style="yellow", justify="right")
@@ -648,7 +666,7 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
             "[bold]Finished Job Statistics[/bold] "
             "[dim](excludes pending, running, and cancelled)[/dim]"
         )
-    console.print(Rule(stats_rule, style="blue"))
+    print_rule(stats_rule)
     stats_table = Table(box=None, show_header=False, padding=(0, 1))
     stats_table.add_column(style="bold cyan", justify="right")
     stats_table.add_column(style="white")
