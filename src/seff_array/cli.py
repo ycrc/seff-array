@@ -32,6 +32,7 @@ from seff_array.config import (
     LABEL_JOBID,
     LABEL_MINOR,
     MEM_METRIC,
+    PROMETHEUS_URL,
 )
 
 console = Console()
@@ -779,12 +780,12 @@ def main():
     parser.add_argument(
         "--prometheus",
         dest="prometheus",
-        default=os.getenv("SEFF_ARRAY_PROM_URL"),
+        default=os.getenv("SEFF_ARRAY_PROM_URL") or PROMETHEUS_URL,
         metavar="URL",
         help=(
             "Prometheus base URL for accurate cgroup and GPU metrics "
             "(e.g. http://prometheus:9090). "
-            "Overrides the SEFF_ARRAY_PROM_URL environment variable."
+            "Overrides SEFF_ARRAY_PROM_URL env var and the PROMETHEUS_URL in config.py."
         ),
     )
     parser.add_argument(

@@ -17,6 +17,13 @@ GPU_JOBID_METRIC = "nvidia_gpu_jobId"
 # GPU duty cycle / utilization (percent, 0-100)
 GPU_UTIL_METRIC = "nvidia_gpu_duty_cycle"
 
+# --- Prometheus connection ---
+
+# Default base URL for the Prometheus server.
+# Can be overridden at runtime with --prometheus or the SEFF_ARRAY_PROM_URL
+# environment variable (both take precedence over this value).
+PROMETHEUS_URL = None
+
 # --- Prometheus label names ---
 
 # Label that identifies the Slurm cluster (must match sacct's Cluster field)
