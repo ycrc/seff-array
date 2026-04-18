@@ -7,6 +7,11 @@ import json
 import os
 import subprocess
 import sys
+import time
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from io import StringIO
 from typing import Optional
 
@@ -24,27 +29,30 @@ console = Console()
 # Slurm states that represent a finished job
 FINISHED_STATES = {"COMPLETED", "FAILED", "OUT_OF_MEMORY", "TIMEOUT", "PREEMPTED"}
 
+# Maximum Prometheus lookback window (13 days keeps us inside typical 2-week retention)
+MAX_PROM_LOOKBACK = 13 * 86400
 
-def time_to_float(time):
+
+def time_to_float(time_str):
     """Convert a Slurm time string [dd-[hh:]]mm:ss to seconds.
 
     Special values "UNLIMITED" and "Partition_Limit" are treated as one year.
     """
     # fillna(0.) produces floats; pass them through unchanged
-    if isinstance(time, float):
-        return time
+    if isinstance(time_str, float):
+        return time_str
 
     # sacct reports these when no wall-time limit is set
-    if time in ("UNLIMITED", "Partition_Limit"):
+    if time_str in ("UNLIMITED", "Partition_Limit"):
         return 365 * 86400
 
     days, hours = 0, 0
 
-    if "-" in time:
-        days = int(time.split("-")[0]) * 86400
-        time = time.split("-")[1]
+    if "-" in time_str:
+        days = int(time_str.split("-")[0]) * 86400
+        time_str = time_str.split("-")[1]
 
-    parts = time.split(":")
+    parts = time_str.split(":")
 
     if len(parts) == 3:
         hours = int(parts[0]) * 3600
@@ -59,6 +67,19 @@ def time_to_float(time):
         mins = 0
 
     return days + hours + mins + secs
+
+
+def parse_timestamp(s) -> float:
+    """Convert a sacct datetime string (e.g. '2024-01-15T10:23:45') to a unix timestamp.
+
+    Returns the current time for unknown/missing values (e.g. still-running jobs).
+    """
+    if isinstance(s, float) or str(s) in ("0.0", "Unknown", "None", ""):
+        return time.time()
+    try:
+        return datetime.fromisoformat(str(s)).timestamp()
+    except ValueError:
+        return time.time()
 
 
 def get_stats_dict(ss64: Optional[str]) -> dict:
@@ -86,16 +107,20 @@ def gpu_count(js: dict) -> int:
 
 
 def gpu_util(js: dict) -> float:
-    """Return the mean GPU utilization (0–100) across all GPUs in a jobstats dict."""
+    """Return the mean GPU utilization (0-100) across all GPUs in a jobstats dict."""
     utils = []
     for node in js.get("nodes", {}).values():
         utils.extend(node.get("gpu_utilization", {}).values())
     return float(np.mean(utils)) if utils else 0.0
 
 
-def is_finished(state):
-    """Return True for any finished state, including 'CANCELLED by <uid>'."""
-    return state in FINISHED_STATES or str(state).startswith("CANCELLED")
+def finished_mask(state_series: pd.Series) -> pd.Series:
+    """Return a boolean mask for rows in a finished state.
+
+    Handles both exact matches (COMPLETED, FAILED, …) and the
+    'CANCELLED by <uid>' variant that sacct sometimes emits.
+    """
+    return state_series.isin(FINISHED_STATES) | state_series.str.startswith("CANCELLED")
 
 
 def make_histogram_table(values, title, unit="%", bins=10, vmin=0, vmax=100):
@@ -139,21 +164,167 @@ def run_sacct(fmt, job_id, cluster_flag, aggregate):
     return pd.read_csv(StringIO(result.decode("utf-8")), sep="|")
 
 
-def job_eff(job_id, cluster=None):
+def query_prometheus(fin_short: pd.DataFrame, cluster: str, prom_url: str) -> dict:
+    """Query Prometheus for CPU, memory, and GPU metrics for a set of finished tasks.
+
+    Uses a single bulk regex query per metric so the number of HTTP requests is
+    constant (4) regardless of array size.
+
+    Returns a dict mapping JobIDRaw (str) to a dict of:
+        cpu_seconds  float  – total CPU time consumed
+        rss_gb       float  – peak RSS memory in GB
+        gpu_util     float  – mean GPU duty cycle 0-100 (only if GPU data found)
+        gpu_count    int    – number of GPUs allocated (only if GPU data found)
+
+    Returns {} on any error so callers fall back gracefully.
+
+    GPU note: this implementation expects the NVIDIA exporter to expose
+    `nvidia_gpu_jobId` as a gauge metric and `nvidia_gpu_duty_cycle` as a
+    gauge, both labeled with `instance` and `minor_number`. Adjust the
+    gpu_alloc / gpu_util queries below if your exporter uses a different schema.
+    """
+    if fin_short.empty:
+        return {}
+
+    raw_ids = set(fin_short["JobIDRaw"].astype(str).tolist())
+    starts = fin_short["Start"].map(parse_timestamp).tolist()
+    ends = fin_short["End"].map(parse_timestamp).tolist()
+
+    query_time = int(max(ends))
+    lookback = min(int(max(ends) - min(starts)), MAX_PROM_LOOKBACK)
+    if lookback < 60:
+        # Window too small to be meaningful
+        return {}
+
+    id_regex = "|".join(raw_ids)
+    url = f"{prom_url.rstrip('/')}/api/v1/query"
+
+    queries = {
+        # max_over_time on a cumulative counter gives the final value
+        "cpu": (
+            f"max_over_time("
+            f"cgroup_cpu_total_seconds{{"
+            f"cluster='{cluster}',jobid=~'{id_regex}',step='',task=''"
+            f"}}[{lookback}s]) by (jobid)"
+        ),
+        # max_over_time on RSS gives peak memory usage
+        "mem": (
+            f"max_over_time("
+            f"cgroup_memory_rss_bytes{{"
+            f"cluster='{cluster}',jobid=~'{id_regex}',step='',task=''"
+            f"}}[{lookback}s]) by (jobid)"
+        ),
+        # Which job ID owned each GPU during the window
+        "gpu_alloc": (
+            f"max_over_time("
+            f"nvidia_gpu_jobId{{cluster='{cluster}'}}[{lookback}s]"
+            f") by (instance, minor_number)"
+        ),
+        # Average GPU utilization per device during the window
+        "gpu_util": (
+            f"avg_over_time("
+            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s:60s]"
+            f") by (instance, minor_number)"
+        ),
+    }
+
+    def post_query(key_query):
+        key, query = key_query
+        data = urllib.parse.urlencode(
+            {"query": query, "time": str(query_time)}
+        ).encode()
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return key, json.loads(resp.read())
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {
+                pool.submit(post_query, item): item[0] for item in queries.items()
+            }
+            raw_results = {}
+            for future in as_completed(futures):
+                key, data = future.result()
+                raw_results[key] = data
+    except Exception:
+        return {}
+
+    output: dict = {}
+
+    # CPU seconds per task
+    for item in raw_results.get("cpu", {}).get("data", {}).get("result", []):
+        rawid = item["metric"].get("jobid", "")
+        if rawid in raw_ids:
+            output.setdefault(rawid, {})["cpu_seconds"] = float(item["value"][1])
+
+    # Peak RSS in GB per task
+    for item in raw_results.get("mem", {}).get("data", {}).get("result", []):
+        rawid = item["metric"].get("jobid", "")
+        if rawid in raw_ids:
+            output.setdefault(rawid, {})["rss_gb"] = float(item["value"][1]) / 1e9
+
+    # GPU: join allocation map to utilization map by (instance, minor_number)
+    gpu_alloc: dict = {}
+    for item in raw_results.get("gpu_alloc", {}).get("data", {}).get("result", []):
+        key = (
+            item["metric"].get("instance", ""),
+            item["metric"].get("minor_number", ""),
+        )
+        # nvidia_gpu_jobId stores the numeric job ID as a float value
+        gpu_alloc[key] = str(int(float(item["value"][1])))
+
+    gpu_util_map: dict = {}
+    for item in raw_results.get("gpu_util", {}).get("data", {}).get("result", []):
+        key = (
+            item["metric"].get("instance", ""),
+            item["metric"].get("minor_number", ""),
+        )
+        gpu_util_map[key] = float(item["value"][1])
+
+    # Aggregate per-job GPU utilization
+    gpu_by_job: dict = {}
+    for gpu_key, rawid in gpu_alloc.items():
+        if rawid in raw_ids and gpu_key in gpu_util_map:
+            gpu_by_job.setdefault(rawid, []).append(gpu_util_map[gpu_key])
+
+    for rawid, utils in gpu_by_job.items():
+        output.setdefault(rawid, {})["gpu_util"] = float(np.mean(utils))
+        output[rawid]["gpu_count"] = len(utils)
+
+    return output
+
+
+def job_eff(job_id, cluster=None, prom_url=None):
     # Prefer explicit argument; fall back to the Slurm env var
     if cluster is None:
         cluster = os.getenv("SLURM_CLUSTER_NAME")
 
     cluster_flag = f"--cluster {cluster}" if cluster else ""
 
-    fmt_short = "JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster,AdminComment"
-    fmt_long = "JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,NNodes,User,Group,Cluster,MaxRSS,AdminComment"
+    # JobIDRaw and Start/End are needed to build Prometheus time windows.
+    # AdminComment is kept for the jobstats fallback (used at sites running
+    # store_jobstats even when Prometheus is not configured here).
+    fmt_short = (
+        "JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,"
+        "NNodes,User,Group,Cluster,AdminComment,JobIDRaw,Start,End"
+    )
+    # fmt_long provides the sacct fallback for CPU time and memory.
+    fmt_long = (
+        "JobID,JobName,Elapsed,ReqMem,ReqCPUS,Timelimit,State,TotalCPU,"
+        "NNodes,User,Group,Cluster,MaxRSS"
+    )
 
-    df_short = run_sacct(fmt_short, job_id, cluster_flag, aggregate=True)
-    df_long = run_sacct(fmt_long, job_id, cluster_flag, aggregate=False)
+    # Both sacct queries are independent — run them in parallel.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future_short = pool.submit(run_sacct, fmt_short, job_id, cluster_flag, True)
+        future_long = pool.submit(run_sacct, fmt_long, job_id, cluster_flag, False)
+        df_short = future_short.result()
+        df_long = future_long.result()
 
     # Check that at least one job has finished before doing any work
-    if not df_long["State"].apply(is_finished).any():
+    fin = finished_mask(df_long["State"])
+    if not fin.any():
         console.print(f"[yellow]No finished jobs found for {job_id}.[/yellow]")
         return
 
@@ -224,13 +395,11 @@ def job_eff(job_id, cluster=None):
         status_table.add_row(f"[{color}]{state}[/{color}]", str(count))
     console.print(status_table)
 
-    # --- Efficiency statistics for finished jobs ---
-    mask = df_long["State"].apply(is_finished)
-    df_finished = df_long[mask]
-
-    cpu_use = df_finished.groupby("JobID")["TotalCPU"].max()
-    time_use = df_finished.groupby("JobID")["Elapsed"].max()
-    mem_use = df_finished.groupby("JobID")["MaxRSS"].max()
+    # --- sacct baseline efficiency values (always computed as fallback) ---
+    df_finished = df_long[fin]
+    sacct_cpu = df_finished.groupby("JobID")["TotalCPU"].max()
+    sacct_time = df_finished.groupby("JobID")["Elapsed"].max()
+    sacct_mem = df_finished.groupby("JobID")["MaxRSS"].max()
 
     req_time_secs = time_to_float(req_time_raw)
     req_mem_gb = (
@@ -238,53 +407,99 @@ def job_eff(job_id, cluster=None):
         if req_mem_raw.replace("G", "").replace(".", "").isdigit()
         else 0.0
     )
-
-    cpu_arr = cpu_use.to_numpy()
-    time_arr = time_use.to_numpy()
-    mem_arr = mem_use.to_numpy()
     n_cores = float(cores) if float(cores) > 0 else 1.0
 
-    # CPU efficiency: (cpu time used) / (elapsed * cores)
+    # --- Prometheus query (if configured) ---
+    # Filter df_short to only finished tasks so we only query jobs
+    # with complete time windows.
+    fin_short = df_short[finished_mask(df_short["State"])].copy()
+    prom_data: dict = {}
+    if prom_url:
+        prom_data = query_prometheus(fin_short, str(cluster_name), prom_url)
+
+    # --- Build a JobID → JobIDRaw lookup for Prometheus result joining ---
+    id_map = dict(
+        zip(fin_short["JobID"].astype(str), fin_short["JobIDRaw"].astype(str))
+    )
+    # AdminComment lookup for the jobstats GPU fallback
+    ac_map = dict(zip(fin_short["JobID"].astype(str), fin_short["AdminComment"]))
+
+    # --- Build per-task efficiency arrays ---
+    # Source priority: Prometheus → sacct (CPU/memory)
+    # GPU priority:    Prometheus → AdminComment (jobstats) → none
+    cpu_list, time_list, mem_list = [], [], []
+    gpu_utils: list = []
+    gpu_counts_list: list = []
+
+    for jid in sacct_cpu.index:
+        jid_str = str(jid)
+        raw_id = id_map.get(jid_str, "")
+
+        time_list.append(float(sacct_time.get(jid, 0.0)))
+
+        if raw_id in prom_data:
+            entry = prom_data[raw_id]
+            cpu_list.append(entry.get("cpu_seconds", float(sacct_cpu.get(jid, 0.0))))
+            mem_list.append(entry.get("rss_gb", float(sacct_mem.get(jid, 0.0))))
+            if "gpu_util" in entry:
+                gpu_utils.append(entry["gpu_util"])
+                gpu_counts_list.append(entry.get("gpu_count", 1))
+        else:
+            cpu_list.append(float(sacct_cpu.get(jid, 0.0)))
+            mem_list.append(float(sacct_mem.get(jid, 0.0)))
+            # AdminComment GPU fallback (Princeton jobstats store_jobstats)
+            js = get_stats_dict(ac_map.get(jid_str, ""))
+            if js:
+                n = gpu_count(js)
+                if n > 0:
+                    gpu_utils.append(gpu_util(js))
+                    gpu_counts_list.append(n)
+
+    cpu_arr = np.array(cpu_list)
+    time_arr = np.array(time_list)
+    mem_arr = np.array(mem_list)
+
     with np.errstate(divide="ignore", invalid="ignore"):
         cpu_eff = np.where(time_arr > 0, cpu_arr / (time_arr * n_cores), 0.0)
         mem_eff = np.where(req_mem_gb > 0, mem_arr / req_mem_gb, 0.0)
         time_eff = np.where(req_time_secs > 0, time_arr / req_time_secs, 0.0)
 
-    # --- GPU stats from Princeton jobstats (AdminComment field) ---
-    # Parse the AdminComment from the aggregate query (one row per array task).
-    # Each row's AdminComment holds jobstats JSON for that task.
-    gpu_counts = []
-    gpu_utils = []
-    for ac in df_short["AdminComment"]:
-        js = get_stats_dict(ac)
-        if js:
-            n_gpus = gpu_count(js)
-            if n_gpus > 0:
-                gpu_counts.append(n_gpus)
-                gpu_utils.append(gpu_util(js))
+    has_gpu_data = len(gpu_utils) > 0
 
-    has_gpu_data = len(gpu_counts) > 0
-
-    # --- Statistics ---
+    # --- Statistics panel ---
     console.print(
         Rule(
-            "[bold]Finished Job Statistics[/bold] [dim](excludes pending, running, and cancelled)[/dim]",
+            "[bold]Finished Job Statistics[/bold] "
+            "[dim](excludes pending, running, and cancelled)[/dim]",
             style="blue",
         )
     )
     stats_table = Table(box=None, show_header=False, padding=(0, 1))
     stats_table.add_column(style="bold cyan", justify="right")
     stats_table.add_column(style="white")
-    stats_table.add_row("Jobs analyzed:", str(len(cpu_use)))
+    stats_table.add_row("Jobs analyzed:", str(len(cpu_arr)))
     stats_table.add_row("Avg CPU Efficiency:", f"{cpu_eff.mean() * 100:.1f}%")
     stats_table.add_row("Avg Memory Usage:", f"{mem_arr.mean():.2f} GB")
     stats_table.add_row("Avg Runtime:", f"{time_arr.mean():.0f}s")
     if has_gpu_data:
-        stats_table.add_row("Avg Requested GPUs:", f"{np.mean(gpu_counts):.1f}")
+        stats_table.add_row("Avg Requested GPUs:", f"{np.mean(gpu_counts_list):.1f}")
         stats_table.add_row("Avg GPU Efficiency:", f"{np.mean(gpu_utils):.1f}%")
+    # Show which data source provided CPU/memory metrics
+    if prom_url:
+        n_prom = sum(
+            1 for jid in sacct_cpu.index if id_map.get(str(jid), "") in prom_data
+        )
+        n_total = len(cpu_arr)
+        if n_prom == n_total:
+            src_label = "Prometheus"
+        elif n_prom > 0:
+            src_label = f"Prometheus ({n_prom}/{n_total} tasks) + sacct"
+        else:
+            src_label = "sacct (Prometheus returned no data)"
+        stats_table.add_row("Metrics source:", src_label)
     console.print(stats_table)
 
-    # Histograms are only meaningful for array jobs with multiple tasks
+    # --- Histograms (array jobs only) ---
     if is_array_job:
         console.print(make_histogram_table(cpu_eff * 100, "CPU Efficiency"))
         if has_gpu_data:
@@ -300,17 +515,20 @@ def main():
             "seff-array v{ver} — job efficiency report for Slurm jobs and job arrays.\n"
             "https://github.com/ycrc/seff-array\n"
             "\n"
-            "Queries sacct and reports CPU, memory, and wall-time efficiency.\n"
+            "Reports CPU, memory, and wall-time efficiency for completed jobs.\n"
             "For job arrays, per-task histograms are shown for each metric.\n"
             "For single jobs, a summary similar to `seff` is produced.\n"
             "\n"
-            "If Princeton jobstats data is present in the AdminComment field,\n"
-            "GPU utilization statistics and a histogram are also displayed.\n"
+            "Metrics source priority (first available wins):\n"
+            "  1. Prometheus  — accurate cgroup + GPU metrics (requires --prometheus)\n"
+            "  2. jobstats    — GPU data from AdminComment field (Princeton jobstats)\n"
+            "  3. sacct       — built-in Slurm accounting (always available)\n"
             "\n"
             "Examples:\n"
-            "  seff-array 12345678          # single job or array\n"
-            "  seff-array 12345678_42        # specific array task\n"
-            "  seff-array 12345678 -c grace  # specify cluster explicitly\n"
+            "  seff-array 12345678                          # single job or array\n"
+            "  seff-array 12345678_42                       # specific array task\n"
+            "  seff-array 12345678 -c grace                 # specify cluster\n"
+            "  seff-array 12345678 --prometheus http://prometheus:9090\n"
         ).format(ver=__version__),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -327,13 +545,24 @@ def main():
         ),
     )
     parser.add_argument(
+        "--prometheus",
+        dest="prometheus",
+        default=os.getenv("SEFF_ARRAY_PROM_URL"),
+        metavar="URL",
+        help=(
+            "Prometheus base URL for accurate cgroup and GPU metrics "
+            "(e.g. http://prometheus:9090). "
+            "Overrides the SEFF_ARRAY_PROM_URL environment variable."
+        ),
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
     )
     args = parser.parse_args()
 
-    job_eff(args.jobid, args.cluster)
+    job_eff(args.jobid, args.cluster, args.prometheus)
 
 
 if __name__ == "__main__":
