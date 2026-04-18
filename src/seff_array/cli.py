@@ -114,6 +114,21 @@ def gpu_util(js: dict) -> float:
     return float(np.mean(utils)) if utils else 0.0
 
 
+def state_color(state: str) -> str:
+    """Return a Rich color name for a Slurm job state string."""
+    if state == "COMPLETED":
+        return "green"
+    if state == "TIMEOUT":
+        return "yellow"
+    if state in ("FAILED", "OUT_OF_MEMORY"):
+        return "red"
+    if state.startswith("CANCELLED"):
+        return "magenta"
+    if state == "RUNNING":
+        return "blue"
+    return "white"
+
+
 def finished_mask(state_series: pd.Series) -> pd.Series:
     """Return a boolean mask for rows in a finished state.
 
@@ -123,11 +138,26 @@ def finished_mask(state_series: pd.Series) -> pd.Series:
     return state_series.isin(FINISHED_STATES) | state_series.str.startswith("CANCELLED")
 
 
-def make_histogram_table(values, title, unit="%", bins=10, vmin=0, vmax=100):
-    """Return a rich Table containing a horizontal histogram."""
+def make_histogram_table(
+    values, title, unit="%", bins=10, vmin=0, vmax=100, states=None
+):
+    """Return a rich Table containing a horizontal histogram.
+
+    If `states` is provided (an array parallel to `values`), each bar is
+    rendered as a stacked color-coded breakdown by job state.
+    """
+    values = np.asarray(values)
     h, bin_edges = np.histogram(values, bins=np.linspace(vmin, vmax, num=bins + 1))
     max_count = max(h) if max(h) > 0 else 1
     bar_width = 30
+
+    # Assign each value to a bin index (0-indexed, clamped)
+    if states is not None:
+        states = np.asarray(states)
+        span = vmax - vmin if vmax != vmin else 1
+        bin_idx = np.clip(
+            np.floor((values - vmin) / span * bins).astype(int), 0, bins - 1
+        )
 
     table = Table(
         title=title,
@@ -138,11 +168,31 @@ def make_histogram_table(values, title, unit="%", bins=10, vmin=0, vmax=100):
     )
     table.add_column(f"Range ({unit})", style="cyan", justify="right", min_width=12)
     table.add_column("Count", style="yellow", justify="right", min_width=6)
-    table.add_column("Distribution", style="green", min_width=bar_width + 2)
+    table.add_column("Distribution", min_width=bar_width + 2, no_wrap=True)
 
     for i, count in enumerate(h):
         range_str = f"{bin_edges[i]:.0f}\u2013{bin_edges[i + 1]:.0f}"
-        bar = "\u2588" * int(count / max_count * bar_width)
+        total_blocks = int(count / max_count * bar_width)
+
+        if states is not None and count > 0:
+            # Tally state counts for this bin
+            bin_states = states[bin_idx == i]
+            unique, counts = np.unique(bin_states, return_counts=True)
+            # Build stacked colored bar; give any rounding remainder to the last segment
+            bar = ""
+            remaining = total_blocks
+            for j, (st, sc) in enumerate(zip(unique, counts)):
+                if j == len(unique) - 1:
+                    w = remaining  # absorb rounding remainder in last segment
+                else:
+                    w = round(sc / count * total_blocks)
+                w = min(w, remaining)
+                remaining -= w
+                color = state_color(str(st))
+                bar += f"[{color}]\u2588" * w + f"[/{color}]" if w else ""
+        else:
+            bar = "[green]\u2588[/green]" * total_blocks
+
         table.add_row(range_str, str(count), bar)
 
     return table
@@ -501,18 +551,27 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     # AdminComment lookup for the jobstats GPU fallback
     ac_map = dict(zip(fin_short["JobID"].astype(str), fin_short["AdminComment"]))
 
+    # State lookup for histogram coloring
+    state_map = dict(zip(fin_short["JobID"].astype(str), fin_short["State"]))
+
     # --- Build per-task efficiency arrays ---
     # Source priority: Prometheus → sacct (CPU/memory)
     # GPU priority:    Prometheus → AdminComment (jobstats) → none
-    cpu_list, time_list, mem_list = [], [], []
+    cpu_list, time_list, mem_list, state_list = [], [], [], []
     gpu_utils: list = []
     gpu_counts_list: list = []
+    gpu_states_list: list = []
 
     for jid in sacct_cpu.index:
         jid_str = str(jid)
         raw_id = id_map.get(jid_str, "")
+        task_state = str(state_map.get(jid_str, "UNKNOWN"))
+        # Normalise "CANCELLED by <uid>" → "CANCELLED" for consistent coloring
+        if task_state.startswith("CANCELLED"):
+            task_state = "CANCELLED"
 
         time_list.append(float(sacct_time.get(jid, 0.0)))
+        state_list.append(task_state)
 
         if raw_id in prom_data:
             entry = prom_data[raw_id]
@@ -528,6 +587,7 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
             entry = prom_data[raw_id]
             gpu_utils.append(entry["gpu_util"])
             gpu_counts_list.append(entry.get("gpu_count", 1))
+            gpu_states_list.append(task_state)
         else:
             # AdminComment GPU fallback (Princeton jobstats store_jobstats)
             js = get_stats_dict(ac_map.get(jid_str, ""))
@@ -536,6 +596,7 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
                 if n > 0:
                     gpu_utils.append(gpu_util(js))
                     gpu_counts_list.append(n)
+                    gpu_states_list.append(task_state)
 
     cpu_arr = np.array(cpu_list)
     time_arr = np.array(time_list)
@@ -584,12 +645,23 @@ def job_eff(job_id, cluster=None, prom_url=None, debug=False):
     console.print(stats_table)
 
     # --- Histograms (array jobs only) ---
+    state_arr = np.array(state_list)
     if is_array_job:
-        console.print(make_histogram_table(cpu_eff * 100, "CPU Efficiency"))
+        console.print(
+            make_histogram_table(cpu_eff * 100, "CPU Efficiency", states=state_arr)
+        )
         if has_gpu_data:
-            console.print(make_histogram_table(gpu_utils, "GPU Efficiency"))
-        console.print(make_histogram_table(mem_eff * 100, "Memory Efficiency"))
-        console.print(make_histogram_table(time_eff * 100, "Time Efficiency"))
+            console.print(
+                make_histogram_table(
+                    gpu_utils, "GPU Efficiency", states=np.array(gpu_states_list)
+                )
+            )
+        console.print(
+            make_histogram_table(mem_eff * 100, "Memory Efficiency", states=state_arr)
+        )
+        console.print(
+            make_histogram_table(time_eff * 100, "Time Efficiency", states=state_arr)
+        )
 
 
 def main():
