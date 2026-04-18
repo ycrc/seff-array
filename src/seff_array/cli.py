@@ -193,28 +193,31 @@ def query_prometheus(
     ends = fin_short["End"].map(parse_timestamp).tolist()
 
     query_time = int(max(ends))
-    lookback = min(int(max(ends) - min(starts)), MAX_PROM_LOOKBACK)
+    gpu_start = int(min(starts))
+    gpu_end = int(max(ends))
+    lookback = min(gpu_end - gpu_start, MAX_PROM_LOOKBACK)
     if lookback < 60:
         # Window too small to be meaningful
         return {}
 
-    # For GPU, query at the midpoint of the job window rather than the end.
-    # nvidia_gpu_jobId is a gauge that shows the current allocation — querying
-    # at max(end) sees GPUs that may already be reassigned to newer jobs.
-    gpu_query_time = int((min(starts) + max(ends)) / 2)
+    # Step for GPU range queries: aim for ~500 time steps, minimum 60s.
+    # This gives good attribution resolution without excessive data volume.
+    gpu_step = max(60, lookback // 500)
 
     id_regex = "|".join(raw_ids)
-    url = f"{prom_url.rstrip('/')}/api/v1/query"
+    instant_url = f"{prom_url.rstrip('/')}/api/v1/query"
+    range_url = f"{prom_url.rstrip('/')}/api/v1/query_range"
 
     if debug:
         console.print(
             Rule("[bold yellow]Prometheus debug[/bold yellow]", style="yellow")
         )
-        console.print(f"[yellow]URL:[/yellow] {url}")
+        console.print(f"[yellow]instant URL:[/yellow] {instant_url}")
+        console.print(f"[yellow]range URL:[/yellow]   {range_url}")
         console.print(
             f"[yellow]query_time:[/yellow] {query_time}  "
-            f"[yellow]gpu_query_time:[/yellow] {gpu_query_time}  "
-            f"[yellow]lookback:[/yellow] {lookback}s"
+            f"[yellow]lookback:[/yellow] {lookback}s  "
+            f"[yellow]gpu_step:[/yellow] {gpu_step}s"
         )
         ids_preview = sorted(raw_ids)[:10]
         suffix = "..." if len(raw_ids) > 10 else ""
@@ -222,56 +225,72 @@ def query_prometheus(
             f"[yellow]raw_ids ({len(raw_ids)}):[/yellow] {ids_preview}{suffix}"
         )
 
-    # Each entry: (query_string, unix_timestamp_for_query)
-    queries = {
+    # Instant queries: (url, {post_params})
+    # Range queries use query_range endpoint with start/end/step instead of time.
+    query_specs = {
         # Sum CPU seconds across nodes for multi-node jobs
         "cpu": (
-            f"sum by (jobid) ("
-            f"max_over_time("
-            f"cgroup_cpu_total_seconds{{"
-            f"cluster='{cluster}',jobid=~'{id_regex}'"
-            f"}}[{lookback}s]))",
-            query_time,
+            instant_url,
+            {
+                "query": (
+                    f"sum by (jobid) ("
+                    f"max_over_time("
+                    f"cgroup_cpu_total_seconds{{"
+                    f"cluster='{cluster}',jobid=~'{id_regex}'"
+                    f"}}[{lookback}s]))"
+                ),
+                "time": str(query_time),
+            },
         ),
         # Peak RSS across nodes
         "mem": (
-            f"max by (jobid) ("
-            f"max_over_time("
-            f"cgroup_memory_rss_bytes{{"
-            f"cluster='{cluster}',jobid=~'{id_regex}'"
-            f"}}[{lookback}s]))",
-            query_time,
+            instant_url,
+            {
+                "query": (
+                    f"max by (jobid) ("
+                    f"max_over_time("
+                    f"cgroup_memory_rss_bytes{{"
+                    f"cluster='{cluster}',jobid=~'{id_regex}'"
+                    f"}}[{lookback}s]))"
+                ),
+                "time": str(query_time),
+            },
         ),
-        # Instant snapshot of GPU→job allocation at the midpoint of the window.
-        # max_over_time would return the highest (most recent) job ID per GPU,
-        # which is wrong once GPUs are reassigned to newer jobs.
+        # Range query: which job owned each GPU at each time step.
+        # Using query_range gives full temporal coverage of the job window
+        # so staggered array tasks are all correctly attributed.
         "gpu_alloc": (
-            f"nvidia_gpu_jobId{{cluster='{cluster}'}}",
-            gpu_query_time,
+            range_url,
+            {
+                "query": f"nvidia_gpu_jobId{{cluster='{cluster}'}}",
+                "start": str(gpu_start),
+                "end": str(gpu_end),
+                "step": str(gpu_step),
+            },
         ),
-        # Average GPU utilization using native 30s samples (no subquery downsampling)
+        # Range query: GPU utilization at the same time steps
         "gpu_util": (
-            f"avg by (instance, minor_number) ("
-            f"avg_over_time("
-            f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}[{lookback}s]))",
-            gpu_query_time,
+            range_url,
+            {
+                "query": f"nvidia_gpu_duty_cycle{{cluster='{cluster}'}}",
+                "start": str(gpu_start),
+                "end": str(gpu_end),
+                "step": str(gpu_step),
+            },
         ),
     }
 
     def post_query(item):
-        key, query, qt = item
+        key, req_url, params = item
         if debug:
-            console.print(
-                f"\n[yellow]--- query: {key} (time={qt}) ---[/yellow]\n{query}"
-            )
-        data = urllib.parse.urlencode({"query": query, "time": str(qt)}).encode()
-        req = urllib.request.Request(url, data=data, method="POST")
+            console.print(f"\n[yellow]--- query: {key} ---[/yellow]\n{params['query']}")
+        data = urllib.parse.urlencode(params).encode()
+        req = urllib.request.Request(req_url, data=data, method="POST")
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 body = resp.read()
         except urllib.error.HTTPError as e:
-            # Read the error body so Prometheus's message is visible
             err_body = e.read().decode(errors="replace")
             if debug:
                 console.print(
@@ -281,15 +300,19 @@ def query_prometheus(
         parsed = json.loads(body)
         if debug:
             n = len(parsed.get("data", {}).get("result", []))
-            console.print(f"[yellow]  → {n} result(s)[/yellow]")
+            console.print(f"[yellow]  → {n} series[/yellow]")
             if n > 0:
-                console.print(json.dumps(parsed["data"]["result"][:3], indent=2))
+                # Show first series with up to 3 sample values
+                s = parsed["data"]["result"][0]
+                preview = s.get("values", [s.get("value")])[:3]
+                console.print(
+                    json.dumps({"metric": s["metric"], "samples": preview}, indent=2)
+                )
         return key, parsed
 
     try:
         with ThreadPoolExecutor(max_workers=4) as pool:
-            # Pass (key, query, time) tuples to post_query
-            items = [(k, q, t) for k, (q, t) in queries.items()]
+            items = [(k, u, p) for k, (u, p) in query_specs.items()]
             futures = {pool.submit(post_query, item): item[0] for item in items}
             raw_results = {}
             for future in as_completed(futures):
@@ -302,45 +325,47 @@ def query_prometheus(
 
     output: dict = {}
 
-    # CPU seconds per task
+    # CPU seconds per task (instant query → "value")
     for item in raw_results.get("cpu", {}).get("data", {}).get("result", []):
         rawid = item["metric"].get("jobid", "")
         if rawid in raw_ids:
             output.setdefault(rawid, {})["cpu_seconds"] = float(item["value"][1])
 
-    # Peak RSS in GB per task
+    # Peak RSS in GB per task (instant query → "value")
     for item in raw_results.get("mem", {}).get("data", {}).get("result", []):
         rawid = item["metric"].get("jobid", "")
         if rawid in raw_ids:
             output.setdefault(rawid, {})["rss_gb"] = float(item["value"][1]) / 1e9
 
-    # GPU: join allocation map to utilization map by (instance, minor_number)
-    gpu_alloc: dict = {}
-    for item in raw_results.get("gpu_alloc", {}).get("data", {}).get("result", []):
-        key = (
-            item["metric"].get("instance", ""),
-            item["metric"].get("minor_number", ""),
-        )
-        # nvidia_gpu_jobId stores the numeric job ID as a float value
-        gpu_alloc[key] = str(int(float(item["value"][1])))
+    # GPU: correlate allocation and utilization by (instance, minor_number, timestamp).
+    # Both are range queries → "values": [[ts, val], ...] per series.
+    # Build a lookup: (instance, minor_number, timestamp) → duty_cycle
+    util_ts_map: dict = {}
+    for series in raw_results.get("gpu_util", {}).get("data", {}).get("result", []):
+        inst = series["metric"].get("instance", "")
+        minor = series["metric"].get("minor_number", "")
+        for ts, val in series.get("values", []):
+            util_ts_map[(inst, minor, int(ts))] = float(val)
 
-    gpu_util_map: dict = {}
-    for item in raw_results.get("gpu_util", {}).get("data", {}).get("result", []):
-        key = (
-            item["metric"].get("instance", ""),
-            item["metric"].get("minor_number", ""),
-        )
-        gpu_util_map[key] = float(item["value"][1])
+    # For each time step where a GPU was allocated to one of our jobs,
+    # record the utilization sample and which GPU device it came from.
+    gpu_utils_by_job: dict = {}  # rawid -> [duty_cycle, ...]
+    gpu_devices_by_job: dict = {}  # rawid -> set of (inst, minor) pairs
+    for series in raw_results.get("gpu_alloc", {}).get("data", {}).get("result", []):
+        inst = series["metric"].get("instance", "")
+        minor = series["metric"].get("minor_number", "")
+        for ts, val in series.get("values", []):
+            rawid = str(int(float(val)))
+            if rawid not in raw_ids:
+                continue
+            util = util_ts_map.get((inst, minor, int(ts)))
+            if util is not None:
+                gpu_utils_by_job.setdefault(rawid, []).append(util)
+                gpu_devices_by_job.setdefault(rawid, set()).add((inst, minor))
 
-    # Aggregate per-job GPU utilization
-    gpu_by_job: dict = {}
-    for gpu_key, rawid in gpu_alloc.items():
-        if rawid in raw_ids and gpu_key in gpu_util_map:
-            gpu_by_job.setdefault(rawid, []).append(gpu_util_map[gpu_key])
-
-    for rawid, utils in gpu_by_job.items():
+    for rawid, utils in gpu_utils_by_job.items():
         output.setdefault(rawid, {})["gpu_util"] = float(np.mean(utils))
-        output[rawid]["gpu_count"] = len(utils)
+        output[rawid]["gpu_count"] = len(gpu_devices_by_job.get(rawid, set()))
 
     return output
 
