@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seff-array"
+version = "1.0.0"
+description = "An extension of Slurm's seff tool for job arrays with histogram reporting"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Yale Center for Research Computing", email = "ycrc@yale.edu" },
+]
+dependencies = [
+    "pandas>=1.3",
+    "numpy>=1.21",
+    "rich>=13.0",
+]
+
+[project.scripts]
+seff-array = "seff_array.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ycrc/seff-array"
+"Bug Tracker" = "https://github.com/ycrc/seff-array/issues"
+
+[project.optional-dependencies]
+dev = ["ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
