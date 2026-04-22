@@ -169,6 +169,15 @@ def finished_mask(state_series: pd.Series) -> pd.Series:
     return state_series.isin(FINISHED_STATES) | state_series.str.startswith("CANCELLED")
 
 
+# Eighth-block characters for sub-cell bar precision: index = eighths filled (0-7)
+_PARTIAL_BLOCKS = " \u258f\u258e\u258d\u258c\u258b\u258a\u2589"
+
+
+def _partial_block(frac):
+    """Return a partial-block char for the fractional remainder of a bar width."""
+    return _PARTIAL_BLOCKS[int(frac * 8)]
+
+
 def make_histogram_table(
     values, title, unit="%", bins=10, vmin=0, vmax=100, states=None
 ):
@@ -203,26 +212,35 @@ def make_histogram_table(
 
     for i, count in enumerate(h):
         range_str = f"{bin_edges[i]:.0f}\u2013{bin_edges[i + 1]:.0f}"
-        total_blocks = int(count / max_count * bar_width)
+        total_width = count / max_count * bar_width  # float for sub-block precision
+        n_full = int(total_width)
+        partial = _partial_block(total_width - n_full)
 
         if states is not None and count > 0:
             # Tally state counts for this bin
             bin_states = states[bin_idx == i]
-            unique, counts = np.unique(bin_states, return_counts=True)
-            # Build stacked colored bar; give any rounding remainder to the last segment
+            unique, ucounts = np.unique(bin_states, return_counts=True)
+            # Build stacked colored bar using full blocks; partial block at end
             bar = ""
-            remaining = total_blocks
-            for j, (st, sc) in enumerate(zip(unique, counts)):
+            remaining = n_full
+            for j, (st, sc) in enumerate(zip(unique, ucounts)):
                 if j == len(unique) - 1:
                     w = remaining  # absorb rounding remainder in last segment
                 else:
-                    w = round(sc / count * total_blocks)
+                    w = round(sc / count * n_full)
                 w = min(w, remaining)
                 remaining -= w
                 color = state_color(str(st))
-                bar += f"[{color}]\u2588" * w + f"[/{color}]" if w else ""
+                if w:
+                    bar += f"[{color}]\u2588" * w + f"[/{color}]"
+            # Partial block at end in color of last state
+            if partial.strip():
+                last_color = state_color(str(unique[-1]))
+                bar += f"[{last_color}]{partial}[/{last_color}]"
         else:
-            bar = "[green]\u2588[/green]" * total_blocks
+            bar = "[green]\u2588[/green]" * n_full
+            if partial.strip():
+                bar += f"[green]{partial}[/green]"
 
         table.add_row(range_str, str(count), bar)
 
